@@ -141,6 +141,13 @@ export interface ModelPickerProps {
   currentModel: string;
   onPick: (provider: string, modelId: string) => void;
   onClose: () => void;
+  /**
+   * Open the Settings screen.
+   *
+   * The Settings row used to close the popover and nothing else -- it was a
+   * control that did not work. It now goes somewhere.
+   */
+  onOpenSettings?: () => void;
 }
 
 export function ModelPicker({
@@ -150,6 +157,7 @@ export function ModelPicker({
   currentModel,
   onPick,
   onClose,
+  onOpenSettings,
 }: ModelPickerProps) {
   const [openProvider, setOpenProvider] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -267,7 +275,7 @@ export function ModelPicker({
           <div className="popover-sep" />
           <PopoverRow
             trailing={<ArrowUpRight size={14} />}
-            onClick={onClose}
+            onClick={onOpenSettings ?? onClose}
           >
             <span className="popover-muted">
               <Settings size={13} /> Settings

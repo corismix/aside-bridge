@@ -16,10 +16,17 @@ async function main(): Promise<void> {
   const webDist =
     process.env.MINIAPP_WEB_DIST || path.resolve(here, '../../web/dist');
 
+  // Declared up here so the status route can read the tunnel's CURRENT
+  // hostname: a quick tunnel rotates it while we run, so anything captured
+  // at boot goes stale.
+  let tunnel: Tunnel | null = null;
+
   const { app } = await buildServer(config, {
     webDist,
     jwtSecret,
     logger: process.env.MINIAPP_LOG !== '0',
+    publicUrl: () => tunnel?.url ?? null,
+    version: process.env.MINIAPP_VERSION || '0.1.0',
   });
 
   const host = process.env.MINIAPP_HOST || '127.0.0.1';
@@ -31,7 +38,6 @@ async function main(): Promise<void> {
     `aside mini app listening on http://${host}:${config.port}`,
   );
 
-  let tunnel: Tunnel | null = null;
   if (config.miniapp.tunnel === 'cloudflared') {
     tunnel = new Tunnel({
       port: config.port,

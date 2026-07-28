@@ -5,8 +5,10 @@
  * always inheriting `currentColor` -- no colour, no emoji. lucide is that
  * same family, so step icons come straight from it.
  *
- * Provider marks are the exception: those are brand glyphs, drawn here as
- * minimal monochrome shapes rather than pulled from a library.
+ * Brand marks are NOT here. They live in `Brand.tsx`, recreated from
+ * Aside's own shipped path data -- the approximations that used to sit in
+ * this file (a circle-and-slash for Aside, four dots for "some provider")
+ * were placeholders and read as placeholders.
  */
 import {
   Bell,
@@ -14,6 +16,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Circle,
   Clock,
   FileText,
@@ -24,6 +27,7 @@ import {
   Settings,
   Shield,
   Terminal,
+  TriangleAlert,
   Users,
   ArrowUp,
   ArrowUpRight,
@@ -42,14 +46,22 @@ import {
 import type { StepIcon } from '../types';
 
 export {
+  AsideSymbol,
+  ProviderMark,
+  hasProviderMark,
+} from './Brand';
+
+export {
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Plus,
   Search,
   Settings,
   Shield,
+  TriangleAlert,
   ArrowUp,
   ArrowUpRight,
   LayoutGrid,
@@ -107,29 +119,6 @@ export function StepGlyph({
   return <Glyph size={size} strokeWidth={1.75} aria-hidden />;
 }
 
-/**
- * The eight-point asterisk Aside puts before the model name.
- *
- * Drawn inline rather than taken from lucide, whose asterisk has six arms
- * -- a difference that is visible at pill size.
- */
-export function ModelMark({ size = 13 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2" />
-    </svg>
-  );
-}
-
 /** The small indeterminate ring the sidepanel shows while a turn runs. */
 export function Spinner({ size = 14 }: { size?: number }) {
   return (
@@ -159,79 +148,79 @@ export function Spinner({ size = 14 }: { size?: number }) {
   );
 }
 
-/** Aside's own mark, used for the "Aside" provider row. */
-export function AsideMark({ size = 15 }: { size?: number }) {
+/**
+ * The stop control shown in place of Send while a turn is streaming.
+ *
+ * A filled rounded square, which is what the desktop composer draws: see
+ * the reference screenshot, where a small black rounded-square sits
+ * immediately left of the Steer button during a run.
+ */
+export function StopSquare({ size = 14 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.3}
-      aria-hidden
-    >
-      <circle cx="8" cy="8" r="6.4" />
-      <path d="M4.2 11.8 11.8 4.2" strokeLinecap="round" />
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" />
     </svg>
   );
 }
 
 /**
- * A provider's glyph in the model picker.
+ * A todo's status circle.
  *
- * Kept deliberately simple and monochrome -- these sit at 15px next to the
- * provider name and only need to be distinguishable at a glance.
+ * Empty ring for pending, a part-drawn green ring for in-progress (the
+ * desktop app animates this one), a filled green check for completed, and a
+ * dimmed ring for cancelled -- matching the task-list screenshots.
  */
-export function ProviderMark({ id, size = 15 }: { id: string; size?: number }) {
-  if (id === 'claude-code') return <ModelMark size={size} />;
-  if (id === 'aside') return <AsideMark size={size} />;
-
-  if (id === 'openai-codex') {
+export function TodoCircle({
+  status,
+  size = 15,
+}: {
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  size?: number;
+}) {
+  if (status === 'completed') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+        <circle cx="8" cy="8" r="7" fill="var(--success)" />
+        <path
+          d="M4.8 8.2 7 10.4l4.2-4.4"
+          stroke="var(--background)"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (status === 'in_progress') {
     return (
       <svg
+        className="todo-spin"
         width={size}
         height={size}
         viewBox="0 0 16 16"
         fill="none"
-        stroke="currentColor"
-        strokeWidth={1.2}
         aria-hidden
       >
-        <path d="M8 2.4a2.6 2.6 0 0 1 4.6 1.7 2.6 2.6 0 0 1 0 4.5 2.6 2.6 0 0 1-4.6 3.4 2.6 2.6 0 0 1-4.6-1.7 2.6 2.6 0 0 1 0-4.5A2.6 2.6 0 0 1 8 2.4Z" />
+        <circle cx="8" cy="8" r="6.6" stroke="var(--border)" strokeWidth="1.5" />
+        <path
+          d="M8 1.4a6.6 6.6 0 0 1 6.6 6.6"
+          stroke="var(--success)"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
-
-  if (id === 'xai-grok-oauth') {
-    return (
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.4}
-        strokeLinecap="round"
-        aria-hidden
-      >
-        <path d="M3 13 13 3M6.5 13 13 6.5M3 8.5 8.5 3" />
-      </svg>
-    );
-  }
-
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden
-    >
-      <circle cx="5" cy="5" r="1.5" />
-      <circle cx="11" cy="5" r="1.5" />
-      <circle cx="5" cy="11" r="1.5" />
-      <circle cx="11" cy="11" r="1.5" />
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle
+        cx="8"
+        cy="8"
+        r="6.6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        opacity={status === 'cancelled' ? 0.3 : 0.55}
+      />
     </svg>
   );
 }

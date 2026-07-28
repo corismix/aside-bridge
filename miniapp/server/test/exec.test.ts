@@ -140,6 +140,9 @@ describe('per-session serialisation', () => {
       'claude-sonnet-5',
       '--effort',
       'low',
+      // End-of-options, so a prompt that begins with a dash reaches the
+      // agent instead of being parsed as a flag. See `PROMPT_TERMINATOR`.
+      '--',
       'weird "quotes" and $(rm -rf /) and \'ticks\'',
     ]);
   });
@@ -203,6 +206,7 @@ describe('new session creation', () => {
       'claude-sonnet-5',
       '--effort',
       'low',
+      '--',
       'hello',
     ]);
     expect(spawned[0].args).not.toContain('--session');

@@ -3,10 +3,11 @@ import { Sheet } from './Sheet';
 import { Creature } from './Creature';
 import { FileIcon, Spinner } from './Icons';
 import { FileViewer } from './FileViewer';
+import { TodoProgress } from './TodoSection';
 import { api } from '../api';
 import { formatBytes } from '../utils/format';
 import { relativeTime } from '../utils/time';
-import type { ArtifactFile, ArtifactGroup, ChildSession } from '../types';
+import type { ArtifactFile, ArtifactGroup, ChildSession, Todo } from '../types';
 
 const GROUP_LABELS: Record<ArtifactGroup, string> = {
   artifacts: 'Files',
@@ -25,11 +26,14 @@ const GROUP_LABELS: Record<ArtifactGroup, string> = {
 export function SessionPanel({
   sessionId,
   subagents,
+  todos,
   onInspectSubagent,
   onClose,
 }: {
   sessionId: string;
   subagents: ChildSession[];
+  /** The agent's task list, drawn as "Task progress" at the bottom. */
+  todos: Todo[];
   onInspectSubagent: (childId: string, title: string) => void;
   onClose: () => void;
 }) {
@@ -118,6 +122,9 @@ export function SessionPanel({
             </>
           )}
         </section>
+
+        {/* Last, as in the desktop panel. */}
+        <TodoProgress todos={todos} />
       </Sheet>
 
       {open ? (

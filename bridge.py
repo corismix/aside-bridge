@@ -382,6 +382,39 @@ def read_assistant_since(msg_file, byte_offset):
     return "\n\n".join(texts)
 
 
+def read_error_since(msg_file, byte_offset):
+    """Return the provider error this turn failed with, or "".
+
+    A refused turn is written as an assistant row with
+    stopReason="error", an errorMessage, and an EMPTY content array --
+    e.g. {"role":"assistant","stopReason":"error","errorMessage":"429
+    status code (no body)","content":[]}. read_assistant_since above
+    only reads content parts, so it sees nothing, aside exec still
+    exits 0, and the turn used to be reported as "done, but no text
+    came back. odd." That is a rate limit, and saying so is the
+    difference between a user retrying later and a user thinking the
+    mac is broken."""
+    err = ""
+    try:
+        with open(msg_file) as f:
+            f.seek(byte_offset)
+            for line in f:
+                try:
+                    m = json.loads(line)
+                except ValueError:
+                    continue
+                if m.get("role") != "assistant":
+                    continue
+                if m.get("stopReason") != "error":
+                    continue
+                text = (m.get("errorMessage") or "").strip()
+                if text:
+                    err = text
+    except OSError:
+        pass
+    return err
+
+
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -1465,7 +1498,15 @@ def handle_message(text):
             send_text("hit an error running that: %s"
                       % (err or "unknown")[:300])
         else:
-            send_text("done, but no text came back. odd. check the mac?")
+            # Exit 0 with no text is usually a provider refusal (a rate
+            # limit, an expired sign-in), which the transcript records
+            # and stdout does not. See read_error_since.
+            failed = read_error_since(msg_file, orig_offset) if msg_file else ""
+            if failed:
+                send_text("the model provider refused that turn: %s"
+                          % failed[:300])
+            else:
+                send_text("done, but no text came back. odd. check the mac?")
 
 
 def worker_loop():

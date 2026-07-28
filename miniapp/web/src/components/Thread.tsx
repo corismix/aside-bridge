@@ -30,6 +30,8 @@ import type {
 import { FileIcon } from './Icons';
 import { Markdown } from './Markdown';
 import { WorkFold } from './WorkFold';
+import { ErrorCard } from './ErrorCard';
+import { QuestionCard } from './QuestionCard';
 import type { CitationMark } from '../utils/citations';
 
 function BubbleAttachments({ files }: { files: Attachment[] }) {
@@ -48,15 +50,45 @@ function BubbleAttachments({ files }: { files: Attachment[] }) {
 /**
  * Whether the fold at `index` should still be showing its timeline.
  *
- * Only a running fold can be live, and only until the turn's answer starts
- * -- which shows up as the next item being an answer or a streaming block.
+ * The rule, and the bug it replaces.
+ *
+ * The old rule was "live until any answer or streaming item follows". That
+ * looks right and is not, because a `streaming` item is just whatever the
+ * CLI has written to stdout -- and the agent narrates MID-TURN, between
+ * tool calls, all the time. Every paragraph of commentary therefore
+ * collapsed the timeline; the next tool call cleared the stream buffer and
+ * re-opened it. On a chatty turn that is a fold flapping open and shut
+ * several times a minute, which is exactly the reported "doesn't reliably
+ * auto-expand, collapse is flaky".
+ *
+ * What actually distinguishes commentary from the final answer is whether
+ * the agent is still doing anything. Commentary is followed by more work,
+ * so a step in the block is still pending; the final answer only starts
+ * once every step has its result. So:
+ *
+ *  - not running          -> not live (a finished turn opens collapsed)
+ *  - a real `answer` item -> not live (the transcript has settled it)
+ *  - streaming text while a step is still in flight -> LIVE (commentary)
+ *  - streaming text with every step settled          -> not live (answer)
+ *
+ * Exported and tested directly; it is a state machine, not a detail.
  */
 export function foldIsLive(items: ThreadItem[], index: number): boolean {
   const block = items[index];
   if (block.kind !== 'work' || !block.running) return false;
-  return !items
-    .slice(index + 1)
-    .some((item) => item.kind === 'answer' || item.kind === 'streaming');
+
+  const after = items.slice(index + 1);
+  // The transcript has promoted an answer out of this turn: it is over.
+  if (after.some((item) => item.kind === 'answer')) return false;
+  // A question ends the turn too -- the card below is the point of it.
+  if (after.some((item) => item.kind === 'question')) return false;
+
+  if (!after.some((item) => item.kind === 'streaming')) return true;
+
+  // Streaming, so decide whether it is commentary or the answer.
+  return block.items.some(
+    (item) => item.kind === 'step' && item.status === 'pending',
+  );
 }
 
 export function Thread({
@@ -66,6 +98,8 @@ export function Thread({
   subagentSteps,
   onInspectSubagent,
   onOpenCitation,
+  onAnswer,
+  busy,
 }: {
   items: ThreadItem[];
   /** Whose thread this is -- local image paths resolve against it. */
@@ -74,6 +108,10 @@ export function Thread({
   subagentSteps: Record<string, ChildSteps>;
   onInspectSubagent: (childId: string, title: string) => void;
   onOpenCitation: (mark: CitationMark) => void;
+  /** Send a question's chosen option as a follow-up message. */
+  onAnswer?: (header: string, label: string) => Promise<void>;
+  /** A send is in flight, so question cards hold their buttons. */
+  busy?: boolean;
 }) {
   return (
     <div className="thread">
@@ -106,10 +144,16 @@ export function Thread({
           );
         }
         if (item.kind === 'error') {
+          return <ErrorCard key={item.id} alert={item.alert} />;
+        }
+        if (item.kind === 'question') {
           return (
-            <div key={item.id} className="system-error">
-              {item.text}
-            </div>
+            <QuestionCard
+              key={item.id}
+              item={item}
+              busy={busy}
+              onAnswer={onAnswer}
+            />
           );
         }
         return (

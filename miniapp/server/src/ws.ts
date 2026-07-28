@@ -10,7 +10,7 @@
  *   {type:"ready"}
  *   {type:"subscribed", sessionId, busy, queued}
  *   {type:"thread_delta", sessionId, fromIndex, items, length}
- *   {type:"thread_meta", sessionId, stats, sources}
+ *   {type:"thread_meta", sessionId, stats, sources, todos}
  *   {type:"subagent_delta", sessionId, childId, steps, total}
  *   {type:"stream_delta", sessionId, text}
  *   {type:"turn_started", ...} / {type:"turn_finished", ...}
@@ -266,10 +266,14 @@ export function attachWebSocket(deps: Deps): WebSocketServer {
       }
       dirtyChildren.clear();
 
-      // Token counters and the citation catalog ride their own event: they
-      // move independently of the item list, and a fold gaining a step must
-      // not force the whole catalog back over the wire.
-      const meta = JSON.stringify({ stats: next.stats, sources: next.sources });
+      // Token counters, the citation catalog and the task list ride their
+      // own event: they move independently of the item list, and a fold
+      // gaining a step must not force all of that back over the wire.
+      const meta = JSON.stringify({
+        stats: next.stats,
+        sources: next.sources,
+        todos: next.todos,
+      });
       if (meta !== metaSent) {
         metaSent = meta;
         send({
@@ -277,6 +281,7 @@ export function attachWebSocket(deps: Deps): WebSocketServer {
           sessionId,
           stats: next.stats,
           sources: next.sources,
+          todos: next.todos,
         });
       }
 

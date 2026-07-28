@@ -22,10 +22,11 @@ import {
   ArrowUp,
   ChevronDown,
   FileIcon,
-  ModelMark,
   PermissionGlyph,
   Plus,
+  ProviderMark,
   Spinner,
+  StopSquare,
   X,
 } from './Icons';
 import { ContextRing } from './ContextRing';
@@ -36,6 +37,13 @@ export interface PillState {
   modelLabel: string;
   effortLabel: string;
   effortId: string;
+  /**
+   * Provider id behind the model pill, so the pill can carry that
+   * provider's REAL brand mark -- the Claude starburst, the OpenAI knot --
+   * exactly as the desktop composer does. It used to be a hand-drawn
+   * asterisk regardless of which model was running.
+   */
+  provider?: string;
 }
 
 export interface ComposerProps {
@@ -54,6 +62,23 @@ export interface ComposerProps {
   onRemoveAttachment: (key: string) => void;
   busy?: boolean;
   disabled?: boolean;
+  /**
+   * A turn is streaming. Shows the stop control to the LEFT of send, as the
+   * desktop composer does.
+   */
+  streaming?: boolean;
+  /** Kill the running turn. Absent on the home composer, which has none. */
+  onStop?: () => void;
+  /** Between tapping Stop and the turn actually ending. */
+  stopping?: boolean;
+  /**
+   * The session is blocked on a question only the desktop app can answer.
+   * The input is disabled and this is the reason shown in its place --
+   * sending would queue a turn that hangs forever.
+   */
+  blockedReason?: string | null;
+  /** Rendered directly above the composer: the task list. */
+  above?: React.ReactNode;
 }
 
 /** The `✳ Fable 5 ∨` / `High ∨` triggers from the bottom bar. */
@@ -65,7 +90,8 @@ export function Pill({
 }: {
   label: string;
   onOpen: (anchor: HTMLElement) => void;
-  mark?: boolean;
+  /** Provider id to draw a brand mark for, or absent for a bare pill. */
+  mark?: string;
   className?: string;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -76,7 +102,7 @@ export function Pill({
       className={`pill ${className}`}
       onClick={() => ref.current && onOpen(ref.current)}
     >
-      {mark ? <ModelMark /> : null}
+      {mark ? <ProviderMark id={mark} size={13} /> : null}
       <span className="pill-label">{label}</span>
       <ChevronDown size={13} strokeWidth={1.75} />
     </button>
@@ -174,6 +200,11 @@ export function Composer({
   onRemoveAttachment,
   busy,
   disabled,
+  streaming,
+  onStop,
+  stopping,
+  blockedReason,
+  above,
 }: ComposerProps) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -189,8 +220,12 @@ export function Composer({
 
   const ready = attachments.filter((a) => a.status === 'ready');
   const uploading = attachments.some((a) => a.status === 'uploading');
+  const blocked = Boolean(blockedReason);
   const canSend =
-    (Boolean(value.trim()) || ready.length > 0) && !disabled && !uploading;
+    (Boolean(value.trim()) || ready.length > 0) &&
+    !disabled &&
+    !uploading &&
+    !blocked;
 
   const submit = () => {
     if (!canSend) return;
@@ -210,6 +245,13 @@ export function Composer({
 
   return (
     <div className={`composer composer-${variant}`}>
+      {/* The task list sits ON TOP of the composer, as in the desktop app. */}
+      {above}
+
+      {blockedReason ? (
+        <p className="composer-blocked">{blockedReason}</p>
+      ) : null}
+
       {attachments.length ? (
         <div className="chip-row">
           {attachments.map((attachment) => (
@@ -230,6 +272,7 @@ export function Composer({
         onKeyDown={onKeyDown}
         placeholder={variant === 'home' ? 'Ask AI a task' : 'Reply'}
         rows={1}
+        disabled={blocked}
       />
 
       <div className="composer-actions">
@@ -269,12 +312,36 @@ export function Composer({
         {variant === 'home' ? (
           <>
             <span className="composer-spacer" />
-            <Pill label={pills.modelLabel} onOpen={onOpenModel} mark />
+            <Pill
+              label={pills.modelLabel}
+              onOpen={onOpenModel}
+              mark={pills.provider}
+            />
             <Pill label={pills.effortLabel} onOpen={onOpenEffort} />
           </>
         ) : (
           <span className="composer-spacer" />
         )}
+
+        {/*
+          Stop sits to the LEFT of send while a turn runs, matching the
+          desktop composer's small black rounded square. It is a real kill:
+          the server SIGTERMs the `aside exec` child it owns, by PID.
+        */}
+        {streaming && onStop ? (
+          <button
+            type="button"
+            className="round-button stop"
+            onClick={() => {
+              haptic('medium');
+              onStop();
+            }}
+            disabled={stopping}
+            aria-label="Stop"
+          >
+            {stopping ? <Spinner size={14} /> : <StopSquare size={14} />}
+          </button>
+        ) : null}
 
         <button
           type="button"
@@ -339,7 +406,11 @@ export function BottomBar({
       ) : null}
       <span className="composer-spacer" />
       <ContextRing used={context.used} window={context.window} />
-      <Pill label={pills.modelLabel} onOpen={onOpenModel} mark />
+      <Pill
+        label={pills.modelLabel}
+        onOpen={onOpenModel}
+        mark={pills.provider}
+      />
       <Pill label={pills.effortLabel} onOpen={onOpenEffort} />
     </div>
   );

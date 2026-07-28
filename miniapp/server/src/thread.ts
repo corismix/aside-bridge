@@ -18,6 +18,15 @@
 import type { FacadeMessage } from './facade.js';
 import type { HistoryMessage } from './jsonl.js';
 import { splitAttachmentHeader } from './uploads.js';
+import { stripPreamble } from './preamble.js';
+import { classifyError, type ErrorAlert } from './errors.js';
+import {
+  QUESTION_TOOLS,
+  parseQuestionMarker,
+  questionsFromToolCall,
+  type QuestionItem,
+} from './questions.js';
+import { replayTodos, type Todo, type TodoCallArgs } from './todos.js';
 
 export type StepIcon =
   | 'terminal'
@@ -70,6 +79,8 @@ export interface ChildSession {
   /** The parent spawn toolCall this child came from. */
   toolCallId: string;
   modelLabel: string | null;
+  /** Provider id behind `modelLabel`, for the card's brand mark. */
+  provider?: string | null;
   running: boolean;
   /** Same palette slot as the spawn row that created it. */
   hue?: number;
@@ -158,14 +169,27 @@ export interface AnswerItem {
   ts: number | null;
 }
 
-/** Daemon-level failures (unavailable model, etc.) surfaced inline. */
+/**
+ * A failed turn, drawn as Aside's alert card.
+ *
+ * `text` is retained as the plain fallback so an older client (and the
+ * existing notice strip) still has something to print; `alert` is what the
+ * card actually renders. See `errors.ts` for the classification.
+ */
 export interface ErrorItem {
   kind: 'error';
   id: string;
   text: string;
+  alert: ErrorAlert;
+  ts: number | null;
 }
 
-export type ThreadItem = UserItem | WorkBlock | AnswerItem | ErrorItem;
+export type ThreadItem =
+  | UserItem
+  | WorkBlock
+  | AnswerItem
+  | ErrorItem
+  | QuestionItem;
 
 const OUTPUT_LIMIT = 4000;
 
@@ -481,6 +505,67 @@ export function imageParts(content: unknown): {
   return { images, dropped };
 }
 
+/**
+ * The choices out of an answered question's tool result.
+ *
+ * The daemon writes them as a preamble plus a bullet per question:
+ *
+ *   Asked user 4 question(s). Received response.
+ *
+ *   User responses to asked questions:
+ *   - SAT date: Aug 22, 2026
+ *
+ * The bullets are what a reader wants to see on the settled card; the
+ * preamble is bookkeeping. A confirmation's result has no bullets at all
+ * ("User confirmed the action: …"), so its first line is used instead.
+ */
+export function answeredChoices(resultText: string): string {
+  const lines = String(resultText || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const bullets = lines
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim());
+  if (bullets.length) return bullets.join('\n');
+  const first = lines[0] || '';
+  return /^User (confirmed|declined|cancelled|rejected)/i.test(first)
+    ? first
+    : '';
+}
+
+/**
+ * Every `write_todos` call in a transcript, in order.
+ *
+ * Separate from `buildThread` because the todo list is not a thread item --
+ * it is a piece of session state derived from the same pass, drawn above
+ * the composer and in the session panel rather than in the transcript. See
+ * `todos.ts` for the replay itself.
+ */
+export function collectTodoCalls(
+  messages: Array<FacadeMessage | HistoryMessage>,
+): TodoCallArgs[] {
+  const calls: TodoCallArgs[] = [];
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    for (const rawPart of msg.content) {
+      if (!rawPart || typeof rawPart !== 'object') continue;
+      const part = rawPart as Record<string, unknown>;
+      if (part.type !== 'toolCall' || part.name !== 'write_todos') continue;
+      const args = part.arguments;
+      if (args && typeof args === 'object') calls.push(args as TodoCallArgs);
+    }
+  }
+  return calls;
+}
+
+/** The session's current task list, replayed from its transcript. */
+export function currentTodos(
+  messages: Array<FacadeMessage | HistoryMessage>,
+): Todo[] {
+  return replayTodos(collectTodoCalls(messages));
+}
+
 interface PendingCall {
   step: WorkStep;
   args: unknown;
@@ -523,6 +608,46 @@ export function buildThread(
   let turnEnd: number | null = null;
   const byCallId = new Map<string, PendingCall>();
   /**
+   * Questions raised during this turn, emitted after its answer.
+   *
+   * They are held rather than pushed inline because a question is the END
+   * of a turn in both transports -- the native tool suspends the session
+   * there, and the soft marker is required to be the last thing the agent
+   * writes -- so this is where they belong in reading order. Keeping them
+   * out of `work` also keeps them out of the collapsed fold, which is the
+   * whole point: a pending question the reader has to expand a fold to
+   * find is a question that never gets answered.
+   */
+  let questions: QuestionItem[] = [];
+  /** Question cards keyed by toolCall id, so the result can settle them. */
+  const questionsByCallId = new Map<string, QuestionItem>();
+  /**
+   * The transcript index of the user message that opened the current turn.
+   *
+   * Work and answer ids are derived from THIS rather than from
+   * `items.length`, and that is a fix rather than a tidy-up. A positional id
+   * changes whenever the number of items before it changes -- and it does,
+   * constantly, mid-turn: a turn's trailing text is promoted to an `answer`
+   * item when it is the last thing in the fold and demoted back into the
+   * fold the moment another tool call arrives after it. Every one of those
+   * flips renumbered every later item, React saw new keys, and every fold
+   * on screen remounted -- discarding the `pinned` state that holds the
+   * reader's own expand/collapse choice. That is the "auto-expand is
+   * flaky / my toggle gets undone" bug, and this is its root.
+   *
+   * Keyed on the opening message index, a turn's fold keeps one identity
+   * for as long as the turn exists, whatever happens to its neighbours.
+   */
+  let turnKey = 'head';
+  /**
+   * Bumped whenever a turn is flushed without a new user message opening
+   * the next one -- which happens when a provider error lands mid-turn and
+   * splits it. Without it both halves would claim `work-<same key>` and
+   * React would see duplicate keys.
+   */
+  let turnPart = 0;
+  const foldKey = () => (turnPart ? `${turnKey}.${turnPart}` : turnKey);
+  /**
    * Next palette slot. Counts across the WHOLE session rather than per
    * turn, so a subagent spawned in turn 4 cannot land on the colour a
    * still-visible sibling from turn 1 already has.
@@ -530,7 +655,7 @@ export function buildThread(
   let nextHue = 0;
 
   const flushTurn = (isLast: boolean) => {
-    if (!work.length) return;
+    if (!work.length && !questions.length) return;
 
     // The last assistant paragraph of the turn is the answer; the fold
     // keeps everything before it.
@@ -555,11 +680,16 @@ export function buildThread(
     // the session is busy again: that is the window between `turn_started`
     // and the new user message reaching the transcript, and marking the
     // PREVIOUS turn's fold as running made it flash back open on every send.
-    const stillRunning = running && isLast && !answer;
+    //
+    // A turn that ended on a question is finished too, even with no answer
+    // text. Without this the fold spins forever on a suspended session --
+    // which is precisely what the owner saw: an infinite spinner over a
+    // question nobody could see.
+    const stillRunning = running && isLast && !answer && !questions.length;
     if (work.length) {
       items.push({
         kind: 'work',
-        id: `work-${items.length}`,
+        id: `work-${foldKey()}`,
         items: work,
         durationMs:
           turnStart !== null && turnEnd !== null && turnEnd > turnStart
@@ -571,12 +701,14 @@ export function buildThread(
     if (answer) {
       items.push({
         kind: 'answer',
-        id: `answer-${items.length}`,
+        id: `answer-${foldKey()}`,
         text: answer.text,
         ts: turnEnd,
       });
     }
+    for (const question of questions) items.push(question);
     work = [];
+    questions = [];
     turnStart = null;
     turnEnd = null;
     byCallId.clear();
@@ -587,11 +719,20 @@ export function buildThread(
 
     if (msg.role === 'user') {
       flushTurn(false);
+      // Everything from here belongs to the turn this message opens.
+      turnKey = String(index);
+      turnPart = 0;
       // Files this app sent are named in a header inside the prompt, which
       // belongs to the agent, not to the reader -- so it comes back off and
       // becomes chips. Files attached in the browser arrive as structured
       // metadata instead; both end up in the same place.
-      const split = splitAttachmentHeader(textParts(msg.content));
+      // The mobile-session preamble is stripped for the same reason the
+      // attachment header is: it belongs to the agent, not to the reader,
+      // and left in it makes the user's first bubble a wall of protocol
+      // instructions and titles the session after them.
+      const split = splitAttachmentHeader(
+        stripPreamble(textParts(msg.content)),
+      );
       const text = split.text.trim();
       const attachments = (msg as HistoryMessage).attachments?.length
         ? (msg as HistoryMessage).attachments
@@ -613,14 +754,88 @@ export function buildThread(
         if (turnStart === null) turnStart = ts;
         turnEnd = ts;
       }
+
+      /**
+       * A provider failure, which is a record with `stopReason: "error"`
+       * and an EMPTY content array. Nothing in the parts loop below can see
+       * it, which is why a rate-limited turn used to render as a blank
+       * response -- the row exists, it just carries no content.
+       */
+      const failure = (msg as HistoryMessage).errorMessage;
+      if ((msg as HistoryMessage).stopReason === 'error' && failure?.trim()) {
+        flushTurn(false);
+        turnPart += 1;
+        items.push({
+          kind: 'error',
+          id: `error-${index}`,
+          text: failure,
+          alert: classifyError(failure, { provider: msg.provider }),
+          ts,
+        });
+        return;
+      }
+
       const content = assistantParts(msg.content);
       for (const rawPart of content) {
         const part = rawPart as Record<string, unknown>;
         if (part.type === 'text') {
-          const text = String(part.text || '').trim();
+          const raw = String(part.text || '');
+          // The soft protocol lives inside ordinary assistant text, so it
+          // is peeled off here: the card is emitted, and whatever the
+          // agent wrote around it stays as prose.
+          const marker = parseQuestionMarker(raw);
+          if (marker) {
+            if (marker.rest) {
+              work.push({
+                kind: 'text',
+                id: `t-${index}-${work.length}`,
+                text: marker.rest,
+              });
+            }
+            questions.push({
+              kind: 'question',
+              id: `q-${index}-${questions.length}`,
+              variant: marker.variant,
+              source: 'marker',
+              questions: marker.questions,
+              ...(marker.artifact ? { artifact: marker.artifact } : {}),
+              status: 'pending',
+              // The turn ended cleanly, so a reply is just a message.
+              answerable: true,
+            });
+            continue;
+          }
+          const text = raw.trim();
           if (text) work.push({ kind: 'text', id: `t-${index}-${work.length}`, text });
         } else if (part.type === 'toolCall') {
           const tool = String(part.name || 'tool');
+          const callId = typeof part.id === 'string' ? part.id : '';
+
+          // The question tools are not steps. Rendering them as one is what
+          // put a raw JSON blob and a "Success" badge on screen where the
+          // desktop app draws a question with tappable options.
+          if (QUESTION_TOOLS.has(tool)) {
+            const parsed = questionsFromToolCall(tool, part.arguments);
+            if (parsed) {
+              const item: QuestionItem = {
+                kind: 'question',
+                id: `q-${index}-${questions.length}`,
+                variant: parsed.variant,
+                source: 'tool',
+                questions: parsed.questions,
+                ...(parsed.artifact ? { artifact: parsed.artifact } : {}),
+                status: 'pending',
+                // A pending NATIVE tool can only be answered from the
+                // desktop sidepanel -- see questions.ts. Saying so beats
+                // offering buttons that do nothing.
+                answerable: false,
+              };
+              questions.push(item);
+              if (callId) questionsByCallId.set(callId, item);
+              continue;
+            }
+          }
+
           const step: WorkStep = {
             kind: 'step',
             id: `s-${index}-${work.length}`,
@@ -632,7 +847,6 @@ export function buildThread(
             detail: { command: commandFor(tool, part.arguments) },
             images: [],
           };
-          const callId = typeof part.id === 'string' ? part.id : '';
           const spawn = spawnFrom(tool, callId, part.arguments, nextHue);
           if (spawn) {
             step.subagent = spawn;
@@ -651,6 +865,19 @@ export function buildThread(
     if (msg.role === 'toolResult') {
       if (ts !== null) turnEnd = ts;
       const callId = typeof msg.toolCallId === 'string' ? msg.toolCallId : '';
+
+      // A question that has been answered stops being a live prompt. The
+      // desktop app is the only thing that can answer a native one, so this
+      // is how a card raised on the computer settles on the phone.
+      const question = callId ? questionsByCallId.get(callId) : undefined;
+      if (question) {
+        question.status = 'answered';
+        question.answerable = false;
+        const answered = answeredChoices(textParts(msg.content));
+        if (answered) question.answer = answered;
+        return;
+      }
+
       const pending = callId ? byCallId.get(callId) : undefined;
       if (!pending) return;
 
@@ -787,7 +1014,17 @@ export interface ThreadStats {
   totalTokens: number;
   /** Output (plus reasoning) tokens produced since the last user message. */
   turnTokens: number;
-  /** When the current turn's first assistant message landed, or null. */
+  /**
+   * When the current turn began, or null when there is no open turn.
+   *
+   * This is the USER message's timestamp, not the first assistant
+   * message's. The distinction is the whole of the "streaming footer
+   * appears late or never" bug: an assistant record is only written once
+   * the model has produced something, which on a slow model or a long tool
+   * preamble is tens of seconds after the send -- and until then this was
+   * null, so the footer had no start time and simply did not render. The
+   * desktop app starts its clock when you press send, and so does this.
+   */
   turnStartedAt: number | null;
 }
 
@@ -815,7 +1052,13 @@ export function threadStats(
   for (const msg of messages) {
     if (msg.role === 'user') {
       turnTokens = 0;
-      turnStartedAt = null;
+      // The turn starts here, not at the first assistant record -- see the
+      // note on `turnStartedAt`. A user message with no usable timestamp
+      // still opens a turn; the client falls back to its own clock.
+      turnStartedAt =
+        typeof msg.timestamp === 'number' && msg.timestamp > 0
+          ? msg.timestamp
+          : null;
       continue;
     }
     if (msg.role !== 'assistant') continue;

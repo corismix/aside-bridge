@@ -90,6 +90,8 @@ export interface ChildSession {
   status: string;
   toolCallId: string;
   modelLabel: string | null;
+  /** Provider id behind `modelLabel`, for the card's brand mark. */
+  provider?: string | null;
   running: boolean;
   /** Same palette slot as the spawn row that created it. */
   hue?: number;
@@ -184,10 +186,69 @@ export interface AnswerItem {
   ts: number | null;
 }
 
+/** A classified failure, as `server/src/errors.ts` produces it. */
+export interface ErrorAlert {
+  title: string;
+  description: string;
+  /** The raw provider message, shown behind the card's Details button. */
+  detail: string;
+  tone: 'muted' | 'destructive';
+}
+
 export interface ErrorItem {
   kind: 'error';
   id: string;
   text: string;
+  alert: ErrorAlert;
+  ts: number | null;
+}
+
+// --- questions -----------------------------------------------------------
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface QuestionBlock {
+  header: string;
+  question: string;
+  options: QuestionOption[];
+}
+
+export interface QuestionArtifact {
+  type: string;
+  summary: Array<{ label: string; value: string }>;
+}
+
+/**
+ * A question the agent has put to the user.
+ *
+ * `answerable` is the field that matters: a NATIVE pending tool
+ * (`source: 'tool'`) can only be answered from the desktop sidepanel, so
+ * the card renders read-only with a notice. A soft-marker question
+ * (`source: 'marker'`) is answered by sending an ordinary message.
+ */
+export interface QuestionItem {
+  kind: 'question';
+  id: string;
+  variant: 'ask' | 'confirm';
+  source: 'tool' | 'marker';
+  questions: QuestionBlock[];
+  artifact?: QuestionArtifact;
+  status: 'pending' | 'answered';
+  answer?: string;
+  answerable: boolean;
+}
+
+// --- todos ---------------------------------------------------------------
+
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface Todo {
+  id: string;
+  content: string;
+  status: TodoStatus;
 }
 
 /**
@@ -207,6 +268,7 @@ export type ThreadItem =
   | WorkBlock
   | AnswerItem
   | ErrorItem
+  | QuestionItem
   | StreamingItem;
 
 /** The session's own model, as the daemon has it pinned. */
@@ -240,7 +302,15 @@ export interface ThreadResponse {
   sessionId: string;
   title: string;
   status: string;
+  /**
+   * Blocked on a native question tool the desktop app alone can answer.
+   * The composer disables itself on this rather than queuing a turn that
+   * would hang. See `server/src/questions.ts`.
+   */
+  suspended: boolean;
   items: ThreadItem[];
+  /** The agent's task list, replayed from its `write_todos` calls. */
+  todos: Todo[];
   stats: ThreadStats;
   sources: Record<string, CitationSource>;
   subagents: ChildSession[];
@@ -340,6 +410,24 @@ export interface StatusResponse {
     effortLabel: string;
   };
   permission: string;
+  /** Connection facts for the settings screen. Nothing sensitive here. */
+  service: {
+    version: string;
+    tunnel: 'cloudflared' | 'none';
+    tunnelUrl: string | null;
+    port: number;
+    asideReachable: boolean;
+    bridgeConfigured: boolean;
+  };
+}
+
+/** Defaults for sessions this app creates. See `server/src/settings.ts`. */
+export interface MiniappSettings {
+  defaultProvider: string;
+  defaultModelId: string;
+  defaultEffort: string;
+  defaultPermissionMode: string | null;
+  defaultFinalConfirm: boolean | null;
 }
 
 export interface MessagesResponse {

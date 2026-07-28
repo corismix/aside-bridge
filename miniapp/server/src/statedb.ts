@@ -40,6 +40,21 @@ export interface SessionState {
   model: SessionModel | null;
   /** Set when this session is a subagent of another one. */
   parentId: string | null;
+  /**
+   * The daemon's own status for this session, or null when unreadable.
+   *
+   * `suspended` is the one value with teeth: it is what a session goes to
+   * when it is blocked on a native `ask_user_question` or
+   * `request_action_confirmation`, waiting for an answer the desktop
+   * sidepanel is the only thing that can give. Verified today. Both the
+   * driver watchdog and the composer's disabled state key off it.
+   */
+  status: string | null;
+}
+
+/** True when the session is blocked on a tool only the desktop can answer. */
+export function isSuspended(status: string | null | undefined): boolean {
+  return String(status || '').toLowerCase() === 'suspended';
 }
 
 export const UNKNOWN_STATE: SessionState = {
@@ -49,6 +64,7 @@ export const UNKNOWN_STATE: SessionState = {
   runtimeConfig: null,
   model: null,
   parentId: null,
+  status: null,
 };
 
 /**
@@ -279,6 +295,7 @@ export class StateDb {
             model?: unknown;
             runtime_config?: unknown;
             parent_id?: unknown;
+            status?: unknown;
           }
         | undefined;
 
@@ -299,6 +316,7 @@ export class StateDb {
         runtimeConfig,
         model: parseSessionModel(row.model),
         parentId: row.parent_id ? String(row.parent_id) : null,
+        status: row.status ? String(row.status) : null,
       };
     } catch {
       // Missing file, locked db, absent table or column: all mean we do

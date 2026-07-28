@@ -36,6 +36,24 @@ export interface HistoryMessage extends FacadeMessage {
   attachments?: MessageAttachment[];
   /** Assistant token accounting: `totalTokens`, `output`, `reasoning`, … */
   usage?: Record<string, unknown>;
+  /**
+   * Why the assistant stopped. `"error"` is the one value that matters
+   * here: it marks a turn the provider refused or dropped.
+   */
+  stopReason?: string;
+  /**
+   * The provider's own failure message, present on `stopReason: "error"`
+   * records.
+   *
+   * This is where a rate limit, an expired sign-in or a timeout actually
+   * lives -- verified against real transcripts, e.g. `{"role":"assistant",
+   * "stopReason":"error","errorMessage":"429 status code (no body)",
+   * "content":[]}`. Note the empty `content`: nothing else on the record
+   * says anything went wrong, so a builder that only reads `content`
+   * renders the turn as a blank response. That is exactly the bug this
+   * field exists to fix.
+   */
+  errorMessage?: string;
 }
 
 /** Aside writes timestamps in seconds on some records and ms on others. */
@@ -109,6 +127,10 @@ export function parseHistory(buffer: string): HistoryMessage[] {
     }
     if (msg.usage && typeof msg.usage === 'object') {
       entry.usage = msg.usage as Record<string, unknown>;
+    }
+    if (typeof msg.stopReason === 'string') entry.stopReason = msg.stopReason;
+    if (typeof msg.errorMessage === 'string') {
+      entry.errorMessage = msg.errorMessage;
     }
     if (msg.isError) entry.isError = true;
 

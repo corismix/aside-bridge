@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { EFFORT_LEVELS, type EffortLevel } from './config.js';
 import { ProseFilter, stripAnsi } from './prose.js';
+import { classifyError, execFailureAlert, type ErrorAlert } from './errors.js';
 
 export interface TurnRequest {
   text: string;
@@ -49,6 +50,16 @@ export interface TurnFinished {
   exitCode: number | null;
   durationMs: number;
   error?: string;
+  /** The failure as a card, when there is one. See `errors.ts`. */
+  alert?: ErrorAlert;
+  /** Set when the user tapped Stop rather than the turn ending on its own. */
+  stopped?: boolean;
+  /**
+   * Set when the driver was reaped because the session suspended on a
+   * native question. The turn did not fail and was not stopped -- it is
+   * parked, and the thread shows the question card.
+   */
+  suspended?: boolean;
 }
 
 export interface RunnerOptions {
@@ -60,6 +71,15 @@ export interface RunnerOptions {
   modelAliases: Record<string, string>;
   /** Run `aside repl` to grant full-access on freshly created sessions. */
   grantFullAccess?: boolean;
+  /**
+   * Read a session's daemon status, for the suspend watchdog.
+   *
+   * Optional so the runner stays constructible without a database; without
+   * it there is simply no watchdog and the old behaviour stands.
+   */
+  readStatus?: (sessionId: string) => Promise<string | null>;
+  /** How often the watchdog checks a running turn's session status. */
+  watchdogMs?: number;
   /** Injection seam for tests. */
   spawnFn?: typeof spawn;
 }
@@ -68,6 +88,12 @@ interface SessionQueue {
   running: InFlightTurn | null;
   child: ChildProcess | null;
   queued: TurnRequest[];
+  /** Cleared when the turn settles; see `armWatchdog`. */
+  watchdog: NodeJS.Timeout | null;
+  /** Set by `stop()` so the finish handler can report it honestly. */
+  stopped?: boolean;
+  /** Set by the watchdog when it reaps a suspended driver. */
+  suspended?: boolean;
 }
 
 export function isEffort(value: unknown): value is EffortLevel {
@@ -100,6 +126,54 @@ const MAX_IDLE_QUEUES = 256;
 
 /** Fallback when `execTimeoutMs` arrives unusable. See `armTimeout`. */
 export const FALLBACK_EXEC_TIMEOUT_MS = 20 * 60 * 1000;
+
+/**
+ * The end-of-options marker, sent immediately before the prompt.
+ *
+ * The prompt is a POSITIONAL argument, and the CLI's parser reads anything
+ * dash-leading as a flag no matter where it appears. So a perfectly
+ * ordinary message that happens to start with `-` never reaches the agent:
+ *
+ *   $ aside exec --session X "- Color test: Red"
+ *   error: unknown option '- Color test: Red'
+ *
+ * Caught in live E2E, where tapping an option on a question card sent
+ * exactly that and the turn died with exit code 1. It is not specific to
+ * question answers -- "-- actually, do X instead" typed by hand fails the
+ * same way.
+ *
+ * `--` is the standard terminator and the CLI honours it: verified against
+ * the real binary, where `aside exec --session X -- "-leading text"` gets
+ * as far as "Session not found" rather than failing to parse. Passing it
+ * unconditionally is correct: everything after `--` is positional, which
+ * is what the prompt always was.
+ *
+ * Note this is NOT a shell-injection guard -- args already go as an argv
+ * array, never a shell string. It is purely about the CLI's own parser.
+ */
+export const PROMPT_TERMINATOR = '--';
+
+/**
+ * How often a running turn's session status is checked.
+ *
+ * The watchdog exists because a session that calls `ask_user_question` goes
+ * to `status=suspended` and the `aside exec` process this server spawned
+ * then waits forever for an answer that can only come from the desktop
+ * sidepanel. Left alone that child never exits: the queue stays `running`,
+ * every later message piles up behind a turn that will never finish, and
+ * the UI spins indefinitely. Reaping it is what turns a permanent jam into
+ * a question card the user can see.
+ */
+export const WATCHDOG_INTERVAL_MS = 2_000;
+
+/**
+ * Grace between SIGTERM and SIGKILL when stopping a turn.
+ *
+ * The CLI flushes its transcript on SIGTERM, so the partial answer survives
+ * -- which is the difference between a stopped turn that shows what the
+ * agent got through and one that shows nothing.
+ */
+export const STOP_GRACE_MS = 3_000;
 
 /**
  * The `aside repl` expression that widens a fresh session's permissions.
@@ -156,7 +230,7 @@ export class TurnRunner extends EventEmitter {
   private queueFor(sessionId: string): SessionQueue {
     let queue = this.queues.get(sessionId);
     if (!queue) {
-      queue = { running: null, child: null, queued: [] };
+      queue = { running: null, child: null, queued: [], watchdog: null };
       this.queues.set(sessionId, queue);
     }
     return queue;
@@ -211,18 +285,125 @@ export class TurnRunner extends EventEmitter {
       head.model,
       '--effort',
       head.effort,
+      // See `PROMPT_TERMINATOR`. Without this a message beginning with a
+      // dash is parsed as a flag and the turn dies with `unknown option`.
+      PROMPT_TERMINATOR,
       texts.join('\n\n'),
     ];
     const child = this.spawnFn(this.opts.asideCli, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     queue.child = child;
+    queue.stopped = false;
+    queue.suspended = false;
+    this.armWatchdog(sessionId, queue, child);
     this.trackChild(child, turn, () => {
+      this.disarmWatchdog(queue);
+      const how = { stopped: queue.stopped, suspended: queue.suspended };
       queue.running = null;
       queue.child = null;
+      queue.stopped = false;
+      queue.suspended = false;
       this.pump(sessionId);
       this.pruneQueues();
+      return how;
     });
+  }
+
+  /**
+   * Watch a running turn for the session going `suspended`.
+   *
+   * `suspended` means the agent called a native question tool and the
+   * daemon is waiting on the desktop sidepanel. The driver we spawned will
+   * never return, so it is reaped by PID and the turn is reported finished
+   * with `suspended: true` -- which is what lets the client swap an
+   * infinite spinner for the question card.
+   *
+   * No status reader configured means no watchdog, and the previous
+   * behaviour is unchanged.
+   */
+  private armWatchdog(
+    sessionId: string,
+    queue: SessionQueue,
+    child: ChildProcess,
+  ): void {
+    const readStatus = this.opts.readStatus;
+    if (!readStatus) return;
+    const every = Number(this.opts.watchdogMs) > 0
+      ? Number(this.opts.watchdogMs)
+      : WATCHDOG_INTERVAL_MS;
+
+    const timer = setInterval(() => {
+      // A child that has already gone is not this timer's problem.
+      if (queue.child !== child || child.exitCode !== null || child.signalCode) {
+        this.disarmWatchdog(queue);
+        return;
+      }
+      void readStatus(sessionId).then(
+        (status) => {
+          if (String(status || '').toLowerCase() !== 'suspended') return;
+          if (queue.child !== child) return;
+          queue.suspended = true;
+          this.killChild(child);
+        },
+        () => {
+          // An unreadable status is not evidence of anything; the next
+          // tick tries again and the exec timeout is still the backstop.
+        },
+      );
+    }, every);
+    timer.unref?.();
+    queue.watchdog = timer;
+  }
+
+  private disarmWatchdog(queue: SessionQueue): void {
+    if (queue.watchdog) clearInterval(queue.watchdog);
+    queue.watchdog = null;
+  }
+
+  /**
+   * SIGTERM, then SIGKILL if it is still there.
+   *
+   * Always by PID -- never by name or command line. The live production
+   * mini app runs from the same binary with the same argv, so a
+   * pattern-based kill would take down the owner's real service.
+   */
+  private killChild(child: ChildProcess): void {
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      // already gone
+    }
+    const hard = setTimeout(() => {
+      if (child.exitCode === null && !child.signalCode) {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+    }, STOP_GRACE_MS);
+    hard.unref?.();
+  }
+
+  /**
+   * Stop the turn a session is running, and drop anything queued behind it.
+   *
+   * Queued messages go too, deliberately: someone who taps Stop wants the
+   * agent to stop, and silently running the next queued prompt a moment
+   * later is the opposite of that.
+   *
+   * Returns false when there was nothing to stop, so the route can answer
+   * honestly rather than claiming it did something.
+   */
+  stop(sessionId: string): boolean {
+    const queue = this.queues.get(sessionId);
+    if (!queue?.running || !queue.child) return false;
+    queue.stopped = true;
+    queue.queued.length = 0;
+    this.disarmWatchdog(queue);
+    this.killChild(queue.child);
+    return true;
   }
 
   /**
@@ -239,10 +420,15 @@ export class TurnRunner extends EventEmitter {
     return Number.isFinite(raw) && raw > 0 ? raw : FALLBACK_EXEC_TIMEOUT_MS;
   }
 
+  /**
+   * `onDone` releases the queue and may hand back how the turn ended, which
+   * only it knows -- the queue entry carries the `stopped` / `suspended`
+   * flags and it is the thing that clears them.
+   */
   private trackChild(
     child: ChildProcess,
     turn: InFlightTurn,
-    onDone: () => void,
+    onDone: () => { stopped?: boolean; suspended?: boolean } | void,
   ): void {
     let stderr = '';
     child.stderr?.on('data', (buf: Buffer) => {
@@ -282,7 +468,7 @@ export class TurnRunner extends EventEmitter {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      onDone();
+      const how = onDone() || {};
       const payload: TurnFinished = {
         sessionId: turn.sessionId,
         exitCode,
@@ -294,10 +480,21 @@ export class TurnRunner extends EventEmitter {
       const cleanErr = stripAnsi(stderr);
       const refusal =
         modelUnavailableIn(cleanOut) || modelUnavailableIn(cleanErr);
-      if (refusal) {
+
+      if (how.suspended) {
+        // Not a failure. The agent asked something the daemon is holding
+        // the session open for; the thread shows the question.
+        payload.suspended = true;
+      } else if (how.stopped) {
+        // Also not a failure -- the user asked for this. Reporting a
+        // SIGTERM exit as an error would put a red card on a deliberate act.
+        payload.stopped = true;
+      } else if (refusal) {
         payload.error = refusal;
+        payload.alert = classifyError(refusal, { provider: turn.model.split('/')[0] });
       } else if (error || (exitCode !== 0 && cleanErr.trim())) {
         payload.error = (error || cleanErr.trim()).slice(0, 500);
+        payload.alert = execFailureAlert(exitCode, payload.error);
       }
       this.emit('turn_finished', payload);
     };
@@ -349,6 +546,8 @@ export class TurnRunner extends EventEmitter {
         request.model,
         '--effort',
         request.effort,
+        // Same reason as the continuation path -- see `PROMPT_TERMINATOR`.
+        PROMPT_TERMINATOR,
         request.text,
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
@@ -375,16 +574,21 @@ export class TurnRunner extends EventEmitter {
     };
     const releaseQueue = (sessionId: string) => {
       const queue = this.queueFor(sessionId);
+      this.disarmWatchdog(queue);
+      const how = { stopped: queue.stopped, suspended: queue.suspended };
       queue.running = null;
       queue.child = null;
+      queue.stopped = false;
+      queue.suspended = false;
       this.pump(sessionId);
+      return how;
     };
 
     this.trackChild(child, turn, () => {
       settled = true;
       this.pendingChildren.delete(child);
       dropPending();
-      if (discovered) releaseQueue(discovered);
+      return discovered ? releaseQueue(discovered) : undefined;
     });
 
     const deadline = Date.now() + (opts.timeoutMs ?? 60_000);
@@ -430,6 +634,11 @@ export class TurnRunner extends EventEmitter {
     const queue = this.queueFor(discovered);
     queue.running = turn;
     queue.child = child;
+    queue.stopped = false;
+    queue.suspended = false;
+    // Only now is there an id to watch. A brand new session can suspend on
+    // its very first turn, so it needs the watchdog as much as any other.
+    this.armWatchdog(discovered, queue, child);
     // Bound: the directory now exists, so the next discovery's "before"
     // snapshot already excludes it and the claim has done its job. The
     // queue now owns the child, so shutdown reaches it that way.
@@ -506,6 +715,7 @@ export class TurnRunner extends EventEmitter {
   shutdown(): void {
     for (const queue of this.queues.values()) {
       queue.queued.length = 0;
+      this.disarmWatchdog(queue);
       queue.child?.kill('SIGTERM');
     }
     for (const child of this.pendingChildren) child.kill('SIGTERM');
