@@ -1,10 +1,37 @@
+# --- credentials and per-machine state -----------------------------------
+# config.json holds the bot token and the owner's chat id. Never commit it.
 config.json
+config.json.*
 state.json
+state.db
+# The Mini App's HS256 signing secret. It is generated into the bridge's
+# state directory (chmod 600) rather than here, but a MINIAPP_SECRET_PATH
+# pointed inside the repo must not be able to leak it.
+miniapp-secret.json
+.env
+.env.*
+
+# --- logs ----------------------------------------------------------------
 *.log
+*.log.1
+
+# --- runtime data --------------------------------------------------------
+# Photos and documents that arrived over Telegram, and files uploaded from
+# the phone through the Mini App. Both are the owner's own files.
 media/
+miniapp-uploads/
+# The downloaded cloudflared binary and the marker recording what it was
+# verified against.
+bin/
+backups/
+
+# --- build output --------------------------------------------------------
+node_modules/
+dist/
 __pycache__/
 *.pyc
-backups/
+
+# --- local-only tooling, not part of the published project ---------------
 .DS_Store
 channel-guard*.py
 channel-guard*.json

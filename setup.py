@@ -271,6 +271,40 @@ def offer_bridgemon():
         warn("couldn't create the symlink: %s" % e)
 
 
+def offer_miniapp():
+    """Hand off to the Mini App wizard, if this tree has one.
+
+    Deliberately a separate script rather than more steps here: the Mini
+    App needs Node, builds a web app, and installs a second launchd
+    service, and none of that should be able to fail the bridge install
+    that just succeeded. Declining leaves a working bridge, and
+    `python3 miniapp/setup-miniapp.py` runs the same thing later.
+    """
+    wizard = os.path.join(BRIDGE_DIR, "miniapp", "setup-miniapp.py")
+    if not os.path.exists(wizard):
+        return
+
+    say("")
+    say("%s— Optional: the Aside Mini App —%s" % (BOLD, RESET))
+    say("  The full Aside UI inside Telegram: sessions, live transcripts,")
+    say("  subagents, files, permissions -- opened from the menu button")
+    say("  next to the message box. Same bot, same allowlist.")
+    say("  %sNeeds Node 20+. Takes a couple of minutes to build.%s"
+        % (DIM, RESET))
+    if not ask("  Set up the Aside Mini App now? (y/n)",
+               "y").lower().startswith("y"):
+        say("  %sSkipped. Run it any time:"
+            " python3 miniapp/setup-miniapp.py%s" % (DIM, RESET))
+        return
+
+    env = dict(os.environ, MINIAPP_CONFIG=CONFIG_PATH)
+    r = subprocess.run([sys.executable, wizard], env=env)
+    if r.returncode != 0:
+        warn("the Mini App setup did not finish -- the bridge is fine.")
+        say("  %sRe-run it with: python3 miniapp/setup-miniapp.py%s"
+            % (DIM, RESET))
+
+
 def main():
     say("")
     say("%s┌─────────────────────────────────────┐%s" % (BOLD, RESET))

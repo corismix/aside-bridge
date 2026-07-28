@@ -1,0 +1,8 @@
+{"role":"user","content":"Kick off two subagents and report back","timestamp":1767398400}
+{"role":"assistant","content":[{"type":"toolCall","id":"toolu_spawn_one","name":"subagent","arguments":{"action":"spawn","description":"Audit   the   config loader","subagent_profile":"explore","run_in_background":true}}],"model":"claude-fable-5","usage":{"totalTokens":900,"cost":{"total":0.002}},"stopReason":"toolUse","timestamp":1767398401}
+{"role":"toolResult","toolCallId":"toolu_spawn_one","toolName":"subagent","content":[{"type":"text","text":"spawned"}],"details":{"taskId":"task_fixture_9001"},"isError":false,"timestamp":1767398402}
+{"role":"assistant","content":[{"type":"toolCall","id":"toolu_wait_one","name":"subagent_wait","arguments":{"task_ids":["task_fixture_9001"]}}],"model":"claude-fable-5","usage":{"totalTokens":950,"cost":{"total":0.001}},"stopReason":"toolUse","timestamp":1767398403}
+{"role":"toolResult","toolCallId":"toolu_wait_one","toolName":"subagent_wait","content":[{"type":"text","text":"<subagent_result task_id=\"task_fixture_9001\">The config loader handles missing files cleanly.</subagent_result>"}],"details":{},"isError":false,"timestamp":1767398404}
+{"role":"user-message-metadata","attachments":[],"timestamp":1767398405}
+{"role":"assistant","content":[{"type":"text","text":"The audit came back clean."}],"model":"claude-fable-5","usage":{"totalTokens":1010,"cost":{"total":0.003}},"stopReason":"endTurn","timestamp":1767398406}
+{"role":"assistant","content":[{"type":"text","text":"this line is still being writ

@@ -1,0 +1,1746 @@
+/*
+ * Screen composition, mirroring the Aside sidepanel.
+ *
+ * The visual grammar throughout: opaque white surfaces on a faintly grey
+ * page, hairline borders at `--border`, generous radii from the squircle
+ * scale, and colour reserved for the few places Aside uses it (the
+ * permission label, a diffstat, an error). Glass appears only on popovers
+ * and the thread footer -- the surfaces that actually overlap content.
+ */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* --- boot / auth --------------------------------------------------------- */
+
+.boot {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.boot-title {
+  margin: 0;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.boot-reason {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+}
+
+/* --- home ---------------------------------------------------------------- */
+
+.home {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* --- composer ------------------------------------------------------------ */
+
+.composer {
+  background: var(--surface-primary);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-3xl);
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer-reply {
+  border-radius: var(--radius-2xl);
+  padding: 8px 8px 8px 10px;
+}
+
+.composer-input {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: var(--text-base);
+  line-height: var(--leading-snug);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.composer-input::placeholder {
+  color: var(--surface-tertiary-foreground);
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composer-spacer {
+  flex: 1;
+}
+
+/* --- buttons and pills --------------------------------------------------- */
+
+.round-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  transition: background var(--duration) var(--ease-out),
+    opacity var(--duration) var(--ease-out);
+}
+
+.round-button.ghost {
+  background: var(--muted);
+  color: var(--secondary-foreground);
+}
+
+.round-button.ghost:active {
+  background: var(--accent);
+}
+
+/* The dark circular send button, the one strong-contrast control. */
+.round-button.send {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.round-button.send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-button {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-lg);
+  display: grid;
+  place-items: center;
+  color: var(--secondary-foreground);
+  flex: none;
+}
+
+.icon-button:active {
+  background: var(--muted);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--accent-foreground);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  flex: none;
+  transition: background var(--duration) var(--ease-out);
+}
+
+.pill:active {
+  background: var(--accent);
+}
+
+.pill-label {
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.005em;
+}
+
+/* --- session list toolbar ------------------------------------------------ */
+
+.session-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--muted);
+  border-radius: 999px;
+}
+
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--secondary-foreground);
+  transition: background var(--duration) var(--ease-out),
+    color var(--duration) var(--ease-out);
+}
+
+.segmented button.is-active {
+  background: var(--surface-primary);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px oklch(14.5% 0 0 / 0.06);
+}
+
+.list-search {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-primary);
+  border: var(--hairline) solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.list-empty {
+  margin: 20px 4px;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+/* --- session rows (List view) -------------------------------------------- */
+
+.session-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Square corners: a radius here would curve the separator's ends and
+   make each row read as an outlined card. */
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 10px;
+  text-align: left;
+  border-bottom: var(--hairline) solid var(--border);
+  transition: background var(--duration) var(--ease-out);
+}
+
+.session-row:last-child {
+  border-bottom: none;
+}
+
+.session-row:active {
+  background: var(--muted);
+}
+
+.session-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-row-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.011em;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-row-time {
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+.session-row-marks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+  flex: none;
+}
+
+/* --- session cards (Card view) ------------------------------------------- */
+
+.session-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.session-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  background: var(--surface-primary);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-2xl);
+  transition: background var(--duration) var(--ease-out);
+}
+
+.session-card:active {
+  background: var(--muted);
+}
+
+.session-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-card-time {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+
+.session-card-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.018em;
+  line-height: var(--leading-snug);
+  color: var(--foreground);
+}
+
+.session-card-preview {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--secondary-foreground);
+  /* The sidepanel clamps card previews to a few lines. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- thread screen ------------------------------------------------------- */
+
+.thread-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: var(--hairline) solid var(--border);
+  background: var(--background);
+  flex: none;
+}
+
+.thread-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--secondary-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 34px;
+}
+
+.thread-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px 20px;
+  background: var(--background);
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* User turns: a light grey bubble, right-aligned block, never blue. */
+.user-bubble {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 12px 14px;
+  background: var(--muted);
+  border-radius: var(--radius-2xl);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The answer is plain page content -- no bubble, no card. */
+.answer {
+  font-size: var(--text-base);
+}
+
+.system-error {
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--destructive) 8%, transparent);
+  border: var(--hairline) solid
+    color-mix(in oklab, var(--destructive) 30%, transparent);
+  color: var(--destructive);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+/* --- the work fold ------------------------------------------------------- */
+
+.fold-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.fold-label {
+  font-weight: var(--font-weight-normal);
+}
+
+.fold-chevron {
+  display: inline-flex;
+  color: var(--surface-tertiary-foreground);
+}
+
+/* The timeline's vertical hairline runs behind the step icons. */
+.timeline {
+  margin-top: 10px;
+  padding-left: 10px;
+  border-left: var(--hairline) solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px 5px 4px;
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--secondary-foreground);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.step-row.is-expandable:active {
+  background: var(--muted);
+}
+
+.step-icon {
+  display: inline-flex;
+  color: var(--surface-tertiary-foreground);
+  flex: none;
+}
+
+.step-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diffstat {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  flex: none;
+}
+
+.diffstat .added {
+  color: var(--success);
+}
+
+.diffstat .removed {
+  color: var(--destructive);
+}
+
+.step-chevron {
+  display: inline-flex;
+  color: var(--surface-tertiary-foreground);
+  flex: none;
+}
+
+.step-shots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0 10px 22px;
+}
+
+.step-shots img {
+  border-radius: var(--radius-xl);
+  border: var(--hairline) solid var(--border);
+}
+
+/* "N more images not shown" -- the honest note under a capped shot list. */
+.step-shots-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+/* Mid-turn commentary sits at body weight between the steps. */
+.timeline-text {
+  padding: 8px 4px 10px;
+  font-size: var(--text-sm);
+}
+
+/* --- tool detail card ---------------------------------------------------- */
+
+.tool-card {
+  margin: 6px 0 10px 22px;
+  background: var(--surface-primary);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: var(--hairline) solid var(--border);
+  color: var(--secondary-foreground);
+  font-size: var(--text-sm);
+}
+
+.tool-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--secondary-foreground);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.badge.is-error {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.tool-card-body {
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-command,
+.tool-output {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-command {
+  color: var(--foreground);
+}
+
+.tool-prompt {
+  color: var(--surface-tertiary-foreground);
+}
+
+.tool-output {
+  color: var(--secondary-foreground);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.show-more {
+  align-self: flex-start;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--brand);
+}
+
+.tool-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+/* --- thread footer ------------------------------------------------------- */
+
+.thread-footer {
+  flex: none;
+  padding: 8px 10px calc(6px + env(safe-area-inset-bottom));
+  border-top: var(--hairline) solid var(--border);
+  background: var(--surface-secondary);
+  backdrop-filter: blur(var(--blur-xl));
+  -webkit-backdrop-filter: blur(var(--blur-xl));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Webviews without backdrop-filter get an opaque bar rather than a
+   translucent one that renders as muddy. */
+@supports not (backdrop-filter: blur(1px)) {
+  .thread-footer {
+    background: var(--background);
+  }
+}
+
+.bottom-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.permission {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  height: 30px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--secondary-foreground);
+  white-space: nowrap;
+}
+
+/* Full access is the one orange thing in the UI, as in the sidepanel. */
+.permission.is-full {
+  color: var(--permission);
+}
+
+.permission-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+
+/* --- popovers ------------------------------------------------------------ */
+
+.popover {
+  position: fixed;
+  z-index: 60;
+  padding: 6px;
+  border-radius: var(--radius-2xl);
+  background: var(--surface-secondary);
+  backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
+  border: var(--hairline) solid var(--border-surface-strong);
+  box-shadow:
+    0 12px 32px oklch(14.5% 0 0 / 0.14),
+    0 2px 8px oklch(14.5% 0 0 / 0.06);
+  /* max-height is set inline from the measured available space, so the
+     popover scrolls internally instead of running off an edge. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: popover-in 0.14s var(--ease-out);
+}
+
+/* Rise toward the anchor from whichever side the popover opened on. */
+.popover.is-below {
+  animation-name: popover-in-below;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .popover {
+    background: var(--popover);
+  }
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@keyframes popover-in-below {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover {
+    animation: none;
+  }
+}
+
+.popover-title {
+  padding: 8px 10px 6px;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+
+.popover-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--radius-lg);
+  text-align: left;
+  font-size: var(--text-base);
+  color: var(--popover-foreground);
+  transition: background var(--duration) var(--ease-out);
+}
+
+.popover-row:active,
+.popover-row.is-selected {
+  background: var(--muted);
+}
+
+.popover-row-lead,
+.popover-row-trail {
+  display: inline-flex;
+  align-items: center;
+  color: var(--secondary-foreground);
+  flex: none;
+}
+
+.popover-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--secondary-foreground);
+}
+
+/* Ultrabrowse is rainbow text in Aside's own Reasoning menu. */
+.popover-row.is-ultrabrowse .popover-row-label {
+  background: linear-gradient(
+    100deg,
+    var(--ultrabrowse-red),
+    var(--ultrabrowse-orange),
+    var(--ultrabrowse-yellow),
+    var(--ultrabrowse-green),
+    var(--ultrabrowse-sky),
+    var(--ultrabrowse-blue),
+    var(--ultrabrowse-violet),
+    var(--ultrabrowse-pink)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: var(--font-weight-medium);
+}
+
+.popover-sep {
+  height: var(--hairline);
+  margin: 5px 4px;
+  background: var(--border);
+}
+
+.popover-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--muted-foreground);
+}
+
+.popover-search input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+  color: var(--popover-foreground);
+}
+
+.popover-search input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.popover-empty {
+  padding: 12px 10px;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+/* --- markdown ------------------------------------------------------------ */
+
+.md {
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  word-break: break-word;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 0 0 12px;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 22px 0 10px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.021em;
+  line-height: 1.25;
+}
+
+.md h1 {
+  font-size: var(--text-2xl);
+}
+.md h2 {
+  font-size: var(--text-xl);
+}
+.md h3 {
+  font-size: var(--text-lg);
+}
+.md h4 {
+  font-size: var(--text-base);
+}
+
+.md ul,
+.md ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.md li {
+  margin: 4px 0;
+}
+
+.md li::marker {
+  color: var(--surface-tertiary-foreground);
+}
+
+/* Inline code as a soft grey chip, as in the sidepanel. */
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 1.5px 5px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+}
+
+.md pre {
+  margin: 0 0 12px;
+  padding: 11px 12px;
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  overflow-x: auto;
+}
+
+.md pre code {
+  padding: 0;
+  background: none;
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+.md a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+/* An image inside an answer: full column width, same frame as a shot in
+   the timeline so the two read as the same kind of thing. */
+.md-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 0 12px;
+  border-radius: var(--radius-xl);
+  border: var(--hairline) solid var(--border);
+}
+
+/* What replaces the browser's broken-image icon when a file cannot be
+   served -- gone, outside the allowed roots, or not an image at all. */
+.image-unavailable {
+  display: inline-block;
+  padding: 5px 9px;
+  margin: 0 0 12px;
+  border-radius: var(--radius-md);
+  border: var(--hairline) dashed var(--border);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+.md blockquote {
+  margin: 0 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--secondary-foreground);
+}
+
+.md hr {
+  border: none;
+  border-top: var(--hairline) solid var(--border);
+  margin: 18px 0;
+}
+
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  display: block;
+  overflow-x: auto;
+}
+
+.md th,
+.md td {
+  padding: 7px 10px;
+  border: var(--hairline) solid var(--border);
+  text-align: left;
+}
+
+.md th {
+  background: var(--muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.md img {
+  border-radius: var(--radius-xl);
+  margin: 0 0 12px;
+}
+
+/* --- attachments (round 3) ----------------------------------------------- */
+
+/*
+ * The chip row sits above the input, matching how the sidepanel composer
+ * shows attached files: a thumbnail for images, a document glyph and the
+ * name for everything else, each with its own remove control.
+ */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 4px 4px 5px;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  font-size: var(--text-sm);
+  color: var(--secondary-foreground);
+}
+
+.chip.is-uploading {
+  opacity: 0.65;
+}
+
+.chip.is-failed {
+  background: color-mix(in oklab, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.chip-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  flex: none;
+}
+
+.chip-glyph {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.chip-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-remove {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: inherit;
+  opacity: 0.6;
+  flex: none;
+}
+
+.chip-remove:active {
+  background: var(--accent);
+  opacity: 1;
+}
+
+/* The same files, restated on the bubble once the message has been sent. */
+.bubble-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+
+.bubble-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 5px;
+  border-radius: 999px;
+  background: var(--surface-secondary);
+  font-size: var(--text-xs);
+  color: var(--secondary-foreground);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sent, not yet confirmed by the transcript. Present, but visibly provisional. */
+.user-bubble.is-pending {
+  opacity: 0.6;
+}
+
+/* --- streaming answer ---------------------------------------------------- */
+
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.6;
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes caret-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+  }
+}
+
+/* --- permission control -------------------------------------------------- */
+
+/* Orange when the session can do anything, exactly as the sidepanel does. */
+.permission-button.is-full {
+  color: var(--permission);
+}
+
+/* The bottom-bar label is a button now; it must not look like one. */
+.permission {
+  background: none;
+  border-radius: var(--radius-md);
+  transition: background var(--duration) var(--ease-out);
+}
+
+.permission:active {
+  background: var(--muted);
+}
+
+.popover-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: var(--text-base);
+  color: var(--popover-foreground);
+}
+
+/* Aside's green pill switch. */
+.switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: none;
+  transition: background var(--duration) var(--ease-out);
+}
+
+.switch.is-on {
+  background: var(--switch-on);
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px oklch(0% 0 0 / 0.25);
+  transition: transform var(--duration) var(--ease-out);
+}
+
+.switch.is-on .switch-knob {
+  transform: translateX(16px);
+}
+
+/*
+ * Both permission settings are read when the daemon spawns the next
+ * `aside exec`, so a change binds from the next message. Saying so beats
+ * letting the owner find out.
+ */
+.popover-note {
+  padding: 4px 10px 6px;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- citations ----------------------------------------------------------- */
+
+/*
+ * The superscript that follows a cited sentence. Aside keeps this almost
+ * invisible until you look for it -- the prose is the content, the chip is
+ * an affordance -- so it borrows the link colour and nothing else.
+ */
+.cite-chip {
+  display: inline;
+  padding: 0 1px;
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 1;
+  color: var(--brand);
+  font-weight: var(--font-weight-medium);
+}
+
+.cite-quote {
+  margin: 0 0 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-surface-strong);
+  color: var(--secondary-foreground);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.cite-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cite-source {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 11px;
+  border-radius: var(--radius-xl);
+  border: var(--hairline) solid var(--border);
+  background: var(--surface-primary);
+  text-align: left;
+}
+
+.cite-source:active {
+  background: var(--muted);
+}
+
+.cite-source-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--foreground);
+}
+
+.cite-source-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-xs);
+  color: var(--brand);
+}
+
+.cite-source-excerpt {
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--muted-foreground);
+  /* Excerpts run long; three lines is enough to recognise the passage. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- sheets -------------------------------------------------------------- */
+
+.sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: oklch(14.5% 0 0 / 0.32);
+  animation: sheet-fade 0.16s var(--ease-out);
+}
+
+.sheet {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-secondary);
+  backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
+  border: var(--hairline) solid var(--border-surface-strong);
+  box-shadow: 0 -8px 32px oklch(14.5% 0 0 / 0.16);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .sheet {
+    background: var(--popover);
+  }
+}
+
+.sheet-bottom {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 80vh;
+  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
+  animation: sheet-up 0.2s var(--ease-out);
+}
+
+.sheet-right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(86vw, 380px);
+  border-radius: var(--radius-3xl) 0 0 var(--radius-3xl);
+  animation: sheet-in 0.2s var(--ease-out);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 10px 16px;
+  border-bottom: var(--hairline) solid var(--border);
+  flex: none;
+}
+
+.sheet-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sheet-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-subtitle {
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet-backdrop {
+    animation: none;
+  }
+}
+
+/* --- session panel ------------------------------------------------------- */
+
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel-heading {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--surface-tertiary-foreground);
+}
+
+.panel-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--radius-lg);
+  text-align: left;
+  color: var(--secondary-foreground);
+  font-size: var(--text-sm);
+}
+
+.panel-row:active {
+  background: var(--muted);
+}
+
+.panel-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+
+.panel-row-meta {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--surface-tertiary-foreground);
+}
+
+.panel-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+
+.badge.is-muted {
+  color: var(--surface-tertiary-foreground);
+}
+
+/* --- file viewer --------------------------------------------------------- */
+
+.file-raw-toggle {
+  align-self: flex-end;
+}
+
+.file-image {
+  width: 100%;
+  border-radius: var(--radius-xl);
+  border: var(--hairline) solid var(--border);
+}
+
+.file-source {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--secondary-foreground);
+}
+
+/* --- file write / edit cards --------------------------------------------- */
+
+.file-card {
+  margin: 6px 0 10px 22px;
+  background: var(--surface-primary);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.file-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 11px;
+  border-bottom: var(--hairline) solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--secondary-foreground);
+}
+
+.file-card-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.file-card-copy {
+  flex: none;
+  color: var(--surface-tertiary-foreground);
+}
+
+/* The diff body scrolls on both axes: code lines do not wrap. */
+.file-card-body {
+  max-height: 320px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+
+.file-line {
+  display: flex;
+  gap: 10px;
+  padding-right: 10px;
+  white-space: pre;
+  width: max-content;
+  min-width: 100%;
+}
+
+.file-line-n {
+  flex: none;
+  width: 34px;
+  padding-left: 6px;
+  text-align: right;
+  color: var(--surface-tertiary-foreground);
+  user-select: none;
+}
+
+.file-line.is-add {
+  background: color-mix(in oklab, var(--success) 10%, transparent);
+  border-left: 2px solid var(--success);
+}
+
+.file-line.is-del {
+  background: color-mix(in oklab, var(--destructive) 9%, transparent);
+  border-left: 2px solid var(--destructive);
+}
+
+.file-line.is-ctx {
+  border-left: 2px solid transparent;
+}
+
+/* Enough markdown accent to read structure at 12px; not a highlighter. */
+.md-heading {
+  color: var(--brand);
+  font-weight: var(--font-weight-medium);
+}
+
+.md-strong {
+  color: var(--foreground);
+  font-weight: var(--font-weight-medium);
+}
+
+.md-em,
+.md-link {
+  color: var(--permission);
+}
+
+.md-code {
+  color: var(--success);
+}
+
+/* --- subagents ----------------------------------------------------------- */
+
+.subagent {
+  display: flex;
+  flex-direction: column;
+}
+
+.subagent-spawn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px 5px 4px;
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--secondary-foreground);
+  font-size: var(--text-sm);
+}
+
+.subagent-spawn:active {
+  background: var(--muted);
+}
+
+.creature {
+  flex: none;
+}
+
+.subagent-card {
+  margin: 4px 0 10px 22px;
+  background: var(--surface-primary);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.subagent-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 6px 9px 11px;
+  border-bottom: var(--hairline) solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.subagent-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-weight-medium);
+}
+
+.subagent-model,
+.subagent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.subagent-open {
+  flex: none;
+  display: inline-flex;
+  padding: 2px;
+  color: var(--surface-tertiary-foreground);
+}
+
+.subagent-body {
+  padding: 8px 11px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* The brief is the agent's instructions, not its output -- one line of it. */
+.subagent-brief {
+  margin: 0 0 2px;
+  padding-left: 21px;
+  position: relative;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-brief::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-tertiary-foreground);
+}
+
+.subagent-earlier {
+  margin: 0;
+  padding-left: 21px;
+  font-size: var(--text-xs);
+  color: var(--surface-tertiary-foreground);
+}
+
+.subagent-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--secondary-foreground);
+  overflow: hidden;
+}
+
+.subagent-step > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-step .is-pending {
+  color: var(--muted-foreground);
+}
+
+/* --- context ring -------------------------------------------------------- */
+
+.context-ring {
+  display: inline-flex;
+  padding: 0 4px;
+  color: var(--secondary-foreground);
+  flex: none;
+}
+
+.context-tip {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--popover-foreground);
+}
+
+.context-tip p {
+  margin: 0;
+}
+
+.context-tip-note {
+  color: var(--muted-foreground);
+}
+
+/* --- streaming footer ---------------------------------------------------- */
+
+/*
+ * Elapsed time and tokens for the running turn. This is the app's "busy"
+ * indicator now; the ring beside the model pill is a context meter.
+ */
+.stream-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px 2px;
+  color: var(--surface-tertiary-foreground);
+  font-size: var(--text-xs);
+}
+
+.stream-footer-dot {
+  opacity: 0.6;
+}
+
+/* --- thread header titles ------------------------------------------------ */
+
+.thread-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.thread-subtitle {
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

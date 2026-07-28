@@ -30,11 +30,35 @@ import tty
 BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(BRIDGE_DIR, "bridge.log")
 STATE_PATH = os.path.join(BRIDGE_DIR, "state.json")
-PLIST = os.path.expanduser(
-    "~/Library/LaunchAgents/com.aside.telegram-bridge.plist")
-LABEL = "com.aside.telegram-bridge"
 SESSIONS_DIR = os.path.expanduser("~/.aside/u/0/sessions")
 UID = os.getuid()
+
+# The label is DETECTED, not hardcoded.
+#
+# This file used to pin `com.aside.telegram-bridge` while bridgemon.py
+# detected between that and the legacy `com.saiamartya.aside-telegram-bridge`
+# -- so on any machine running the legacy label (every install predating
+# the public rename) `bridgemon watch` reported STOPPED for a bridge that
+# was up, `--kill` booted out a service that did not exist, and `--start`
+# bootstrapped a plist that was not on disk. All three failed silently.
+# One detector, shared, is the fix.
+sys.path.insert(0, BRIDGE_DIR)
+try:
+    from bridgemon import label as _detect_label, plist_path as _plist_path
+except ImportError:  # bridgemon.py missing: fall back to the public label
+    def _detect_label():
+        return "com.aside.telegram-bridge"
+
+    def _plist_path(lbl):
+        return os.path.expanduser("~/Library/LaunchAgents/%s.plist" % lbl)
+
+
+def bridge_label():
+    return _detect_label()
+
+
+def bridge_plist():
+    return _plist_path(bridge_label())
 
 C = {"dim": "\033[2m", "red": "\033[31m", "green": "\033[32m",
      "yellow": "\033[33m", "cyan": "\033[36m", "bold": "\033[1m",
@@ -60,7 +84,7 @@ def load_state():
 def bridge_pid():
     try:
         out = subprocess.run(
-            ["launchctl", "print", "gui/%d/%s" % (UID, LABEL)],
+            ["launchctl", "print", "gui/%d/%s" % (UID, bridge_label())],
             capture_output=True, text=True).stdout
         m = re.search(r"pid = (\d+)", out)
         return int(m.group(1)) if m else None
@@ -94,7 +118,7 @@ def status_line():
 def kill_bridge():
     print(paint("red", "%s >>> KILL: stopping bridge + in-flight turns"
                 % now()))
-    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (UID, LABEL)],
+    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (UID, bridge_label())],
                    capture_output=True)
     for pid in exec_pids():
         try:
@@ -108,7 +132,7 @@ def kill_bridge():
 
 def start_bridge():
     print(paint("green", "%s >>> starting bridge" % now()))
-    subprocess.run(["launchctl", "bootstrap", "gui/%d" % UID, PLIST],
+    subprocess.run(["launchctl", "bootstrap", "gui/%d" % UID, bridge_plist()],
                    capture_output=True)
     time.sleep(1.5)
     print(status_line())
@@ -227,7 +251,7 @@ def main():
                     elif ch == "r":
                         subprocess.run(
                             ["launchctl", "bootout",
-                             "gui/%d/%s" % (UID, LABEL)],
+                             "gui/%d/%s" % (UID, bridge_label())],
                             capture_output=True)
                         start_bridge()
                     elif ch == "s":

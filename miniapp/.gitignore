@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+*.log
+.DS_Store
+# The JWT signing secret is generated at runtime into
+# ~/.aside/u/0/telegram-bridge/miniapp-secret.json (chmod 600), outside the
+# repo. Listed here anyway in case someone points MINIAPP_SECRET_PATH inside.
+miniapp-secret.json

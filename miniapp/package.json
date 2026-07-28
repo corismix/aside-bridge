@@ -1,0 +1,23 @@
+{
+  "name": "aside-miniapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @aside-miniapp/server",
+    "dev:web": "npm run dev -w @aside-miniapp/web",
+    "build": "npm run build -w @aside-miniapp/web && npm run build -w @aside-miniapp/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "start": "node server/dist/index.js",
+    "initdata": "node scripts/dev-initdata.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

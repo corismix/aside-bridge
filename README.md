@@ -26,7 +26,8 @@ No dependencies, no pip installs, no webhooks, no ports. Plain Python that
 ships with macOS, talking outbound to Telegram only.
 
 Requirements: a Mac with [Aside](https://aside.so) installed, and a
-Telegram account.
+Telegram account. The optional [Mini App](#the-mini-app) also needs
+Node 20+.
 
 ## What it feels like
 
@@ -66,17 +67,97 @@ aside: Drafted a reply. Want to see it before I send?
 | `/new` | fresh persona-primed session |
 | `/sessions` | list recent Aside sessions, tap a button to switch into one |
 
+## The Mini App
+
+The chat is for texting your agent. The Mini App is for *watching* it work:
+the full Aside UI, inside Telegram, on the phone you already have out.
+
+Tap the **Aside** button next to the message box and you get:
+
+- **Sessions** -- every Aside session on your Mac, including the ones
+  started from the desktop app, with unread dots and live status.
+- **Live transcripts** -- tool calls stream in as they happen, then fold
+  into one `Worked for 7m 43s ›` row the moment the answer starts. Tap to
+  reopen the whole timeline.
+- **Subagents** -- each spawn gets a coloured creature and its own nested
+  card with the model it's on, its brief, and its tool timeline ticking
+  over live. Tap through to the child's own thread.
+- **Citations** -- `[1]` chips in the answer open the source that backs
+  them.
+- **Files** -- what the agent wrote and what you sent, in a side panel;
+  markdown and images render in place.
+- **Control** -- permission mode, final-confirm, model and reasoning-effort
+  pickers, all writing to the same daemon state the desktop app reads.
+- **Context meter** -- how full the window is, and what this turn cost.
+- **Attachments** -- pick photos or files from the phone; they land on disk
+  and the agent opens them.
+
+Setup is one prompt at the end of the wizard (or run it later):
+
+```bash
+python3 miniapp/setup-miniapp.py
+```
+
+It checks for Node 20+, builds the app, installs a launchd service
+(`com.aside.miniapp`), starts a Cloudflare quick tunnel so Telegram can
+reach it over HTTPS, and prints the URL.
+
+**How auth works.** Telegram signs every Mini App launch with an HMAC over
+your bot token; the server validates that signature, checks the user id
+against the same one-person allowlist the bridge uses, and mints a 24-hour
+JWT. Every API call and the WebSocket carry it. Nothing is exposed but that
+one authenticated HTTP surface, bound to loopback and published through the
+tunnel — no inbound ports, no database, no third-party service. The bot
+token never leaves the process, and the tunnel binary is a pinned
+cloudflared release verified against a SHA-256 vendored in this repo before
+it is ever executed.
+
+### Limitations
+
+Read these before deciding it's broken.
+
+- **Sessions you start from the Mini App (or the chat bridge) don't appear
+  in the desktop Aside app.** They're created through the CLI, and the
+  daemon marks CLI-created sessions ephemeral, which is exactly what the
+  desktop chat list filters out. The other direction works completely:
+  anything you start on the desktop is visible, continuable and watchable
+  live from your phone. That is the useful direction, and it is the one
+  this was built for.
+- **No mid-turn steering.** Same as the chat bridge: the CLI drops prompts
+  sent to a busy session, so a message you send mid-task queues and runs as
+  the next turn.
+- **Your Mac has to be awake and online.** The server and the tunnel run on
+  it. Asleep is offline.
+- **The tunnel URL changes on every restart.** Quick tunnels are ephemeral.
+  The server re-registers the menu button at the new hostname each time it
+  rotates, so it self-heals — but a link you saved goes stale. For a URL
+  that never moves, set up a named Cloudflare tunnel with your own domain
+  and point `miniapp` at it.
+- **One bot, one Mini App.** The menu button is bot-wide, so a second
+  machine using the same bot token takes the button away from the first.
+  Make a second bot with @BotFather if you want two.
+- **"Max" reasoning isn't sendable.** Aside's own UI offers it; the CLI
+  rejects `--effort max`. The picker hides it rather than silently running
+  something else and telling you it was Max.
+- **No live browser view.** You can watch the agent's tool calls, not its
+  tab.
+
 ## Managing it
 
-Setup links a `bridgemon` command into `~/bin`:
+Setup links a `bridgemon` command into `~/bin`. It manages both services:
 
+- `bridgemon status` -- bridge and Mini App together: running state, pid,
+  port, tunnel URL, last error, last log lines.
 - `bridgemon watch` -- live timeline of everything the bridge and agent do,
   plus a one-key kill switch.
 - `bridgemon update` -- pull the latest version, syntax-check, restart, and
-  auto-rollback if anything looks broken.
-- `bridgemon status` / `logs` / `rollback` -- the rest.
+  auto-rollback if anything looks broken. When the Mini App is installed it
+  is rebuilt (`npm install && npm run build`) and restarted too, with the
+  same snapshot-and-roll-back rule.
+- `bridgemon miniapp start|stop|restart|logs` -- the Mini App on its own.
+- `bridgemon logs` / `rollback` / `init` -- the rest.
 
-To stop everything: `bridgemon watch --kill`.
+To stop everything: `bridgemon watch --kill` and `bridgemon miniapp stop`.
 
 ## Security, the short version
 
@@ -190,6 +271,10 @@ upcoming turn to any level (off through ultrabrowse).
 | `monitor.py` | live monitor + kill switch (via `bridgemon watch`) |
 | `config.example.json` | reference config |
 | `com.aside.telegram-bridge.plist` | launchd template (manual installs) |
+| `miniapp/` | the Telegram Mini App: Fastify server + React web app |
+| `miniapp/setup-miniapp.py` | Mini App setup wizard (Node, build, service) |
+| `docs/MINIAPP-REPORT.md` | how the Mini App was built and verified |
+| `docs/AUDIT.md` | independent security/robustness audit of the Mini App |
 
 </details>
 
