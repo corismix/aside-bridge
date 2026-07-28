@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ModelMark, Spinner, StepGlyph } from './Icons';
+import {
+  ChevronDown,
+  ChevronRight,
+  ProviderMark,
+  Spinner,
+  StepGlyph,
+} from './Icons';
 import { Creature } from './Creature';
 import { haptic } from '../telegram';
 import type { ChildSteps, SubagentSpawn, WorkStep } from '../types';
@@ -60,7 +66,7 @@ export function SubagentCard({
             </span>
             {child?.modelLabel ? (
               <span className="badge subagent-model">
-                <ModelMark size={11} />
+                <ProviderMark id={child.provider || ''} size={11} />
                 {child.modelLabel}
               </span>
             ) : null}

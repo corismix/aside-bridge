@@ -14,7 +14,10 @@ import { BottomBar, Composer } from './components/Composer';
 import { EffortPicker, ModelPicker, PermissionPicker } from './components/Pickers';
 import { CitationSheet } from './components/Citations';
 import { SessionPanel } from './components/SessionPanel';
+import { SettingsScreen } from './components/SettingsScreen';
 import { StreamFooter, estimateTokens } from './components/StreamFooter';
+import { TodoSection } from './components/TodoSection';
+import { ErrorCard } from './components/ErrorCard';
 import { ChevronLeft, PanelRight, Spinner } from './components/Icons';
 import type { CitationMark } from './utils/citations';
 import { api, setAuthToken } from './api';
@@ -88,6 +91,8 @@ export default function App() {
   const [picker, setPicker] = useState<PickerState>({ kind: 'none' });
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  /** The Settings screen, opened from the model picker's Settings row. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const attachments = useAttachments();
 
@@ -244,7 +249,7 @@ export default function App() {
       await loadSessions();
       openThread({ id: res.sessionId });
     } catch {
-      // Surfaced by the thread's notices once the turn reports back.
+      // Surfaced as an error card once the turn reports back.
     } finally {
       setSending(false);
     }
@@ -294,6 +299,10 @@ export default function App() {
         currentModel={current.modelId}
         onPick={pickModel}
         onClose={closePicker}
+        onOpenSettings={() => {
+          closePicker();
+          setSettingsOpen(true);
+        }}
       />
     ) : picker.kind === 'effort' && status ? (
       <EffortPicker
@@ -314,6 +323,14 @@ export default function App() {
         onClose={closePicker}
       />
     ) : null;
+
+  // Settings is a full screen rather than a sheet: it is a destination with
+  // its own back affordance, which is how Aside treats it too.
+  if (settingsOpen) {
+    return (
+      <SettingsScreen status={status} onClose={() => setSettingsOpen(false)} />
+    );
+  }
 
   if (!screen) {
     return (
@@ -514,6 +531,35 @@ function ThreadScreen({
     }
   };
 
+  /**
+   * Answer a question card by sending the chosen option as a message.
+   *
+   * Only soft-marker questions ever reach this: a native pending tool is
+   * rendered read-only, because there is no request that can answer one.
+   * The echo goes up first for the same reason `send` does it -- the tap
+   * should be visible immediately.
+   *
+   * The echo text must match `answerMessage` in server/src/questions.ts
+   * exactly: `pendingIsEchoed` retires the optimistic bubble by comparing
+   * it against what the transcript ends up holding, so a format that
+   * drifts from the server's leaves a ghost bubble on screen for the full
+   * two-minute TTL. No leading dash -- see that function for why.
+   */
+  const answer = async (header: string, label: string) => {
+    const text = header ? `${header}: ${label}` : label;
+    thread.addPending({ text, attachments: [], at: Date.now() });
+    pinned.current = true;
+    await api.answer(sessionId, {
+      header,
+      label,
+      model:
+        effective.provider && effective.modelId
+          ? `${effective.provider}/${effective.modelId}`
+          : undefined,
+      effort: effective.effortId,
+    });
+  };
+
   const setPermission = async (patch: {
     mode?: string;
     finalConfirm?: boolean;
@@ -583,9 +629,17 @@ function ThreadScreen({
             onInspectSubagent(childId, thread.title)
           }
           onOpenCitation={setCitation}
+          onAnswer={answer}
+          busy={sending || thread.busy}
         />
 
-        {thread.busy && thread.stats.turnStartedAt ? (
+        {/*
+          The footer rides on `busy` alone now. It used to also require a
+          turn start time, which the server only had once the first
+          assistant record landed -- so on a slow first token it appeared
+          late, and on a turn that produced none it never appeared at all.
+        */}
+        {thread.busy ? (
           <StreamFooter
             startedAt={thread.stats.turnStartedAt}
             tokens={
@@ -594,10 +648,8 @@ function ThreadScreen({
           />
         ) : null}
 
-        {thread.notices.map((notice, index) => (
-          <div key={index} className="system-error">
-            {notice}
-          </div>
+        {thread.alerts.map((alert, index) => (
+          <ErrorCard key={index} alert={alert} />
         ))}
       </div>
 
@@ -617,6 +669,17 @@ function ThreadScreen({
           onRemoveAttachment={attachments.remove}
           busy={sending}
           disabled={sending}
+          streaming={thread.busy}
+          onStop={() => void thread.stop()}
+          stopping={thread.stopping}
+          // A suspended session accepts a send and then hangs on it
+          // forever, so the composer refuses rather than jamming.
+          blockedReason={
+            thread.suspended
+              ? 'Waiting on a question that can only be answered from Aside on your computer.'
+              : null
+          }
+          above={<TodoSection todos={thread.todos} />}
         />
         <BottomBar
           permission={thread.permission}
@@ -635,6 +698,7 @@ function ThreadScreen({
         <SessionPanel
           sessionId={sessionId}
           subagents={thread.subagents}
+          todos={thread.todos}
           onInspectSubagent={(childId) => {
             setPanelOpen(false);
             onInspectSubagent(childId, thread.title);

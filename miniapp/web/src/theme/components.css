@@ -1744,3 +1744,518 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- alert card (a failed turn) ------------------------------------------ */
+
+/*
+ * Aside's own error alert, transcribed from the shipped component: a
+ * rounded-2xl bordered card on a faint muted fill, a warning glyph in the
+ * gutter, a medium-weight title over a muted description, and a Details
+ * button on the right that reveals the raw provider message indented to
+ * clear the icon.
+ */
+.alert-card {
+  border: var(--hairline) solid var(--border);
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  border-radius: var(--radius-2xl);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-card.is-destructive {
+  border-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+  background: color-mix(in oklab, var(--destructive) 5%, transparent);
+}
+
+.alert-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.alert-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+}
+
+.alert-card.is-destructive .alert-icon {
+  color: var(--destructive);
+}
+
+.alert-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.alert-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--foreground);
+}
+
+.alert-card.is-destructive .alert-title {
+  color: var(--destructive);
+}
+
+.alert-description {
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.alert-details {
+  flex: none;
+  align-self: center;
+  padding: 4px 10px;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-primary);
+  color: var(--foreground);
+  font-size: var(--text-xs);
+}
+
+.alert-detail {
+  padding-left: 23px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* --- question card ------------------------------------------------------- */
+
+/*
+ * Where a raw JSON blob and a misleading "Success" badge used to be. The
+ * card is deliberately prominent -- a pending question is the one thing on
+ * screen that the reader has to act on.
+ */
+.question-card {
+  border: var(--hairline) solid var(--border-surface-strong);
+  background: var(--surface-primary);
+  border-radius: var(--radius-2xl);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.question-card.is-readonly,
+.question-card.is-settled {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+  border-color: var(--border);
+}
+
+.question-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.question-header {
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.question-text {
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--foreground);
+}
+
+.question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.question-option {
+  text-align: left;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: background var(--duration) var(--ease-out);
+}
+
+.question-option:active:not(:disabled) {
+  background: var(--muted);
+}
+
+.question-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.question-option.is-chosen {
+  border-color: var(--foreground);
+  opacity: 1;
+}
+
+.question-option-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--foreground);
+}
+
+.question-option-description {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--muted-foreground);
+}
+
+.question-artifact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.question-artifact-row {
+  display: flex;
+  gap: 8px;
+}
+
+.question-artifact-row dt {
+  flex: none;
+  min-width: 74px;
+  color: var(--muted-foreground);
+}
+
+.question-artifact-row dd {
+  min-width: 0;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.question-reply {
+  display: flex;
+  gap: 6px;
+}
+
+.question-reply input {
+  flex: 1;
+  min-width: 0;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--foreground);
+}
+
+.question-reply button {
+  flex: none;
+  padding: 0 12px;
+  border-radius: var(--radius-lg);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: var(--text-sm);
+}
+
+.question-reply button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.question-answered {
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+}
+
+/*
+ * The honest dead end: a native pending tool can only be answered from the
+ * desktop sidepanel, so the card says where rather than offering a control
+ * that cannot work.
+ */
+.question-notice {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--permission);
+}
+
+/* --- task list ----------------------------------------------------------- */
+
+/*
+ * Sits directly on top of the composer, collapsed by default. Its open
+ * state is purely manual and has no relationship to the work fold's
+ * auto-expand rule -- two things opening and closing themselves around the
+ * composer would fight each other for the same strip of screen.
+ */
+.todo-section {
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+  overflow: hidden;
+}
+
+.todo-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.todo-toggle-label,
+.todo-toggle-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-toggle-title {
+  font-weight: var(--font-weight-medium);
+}
+
+.todo-count {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--surface-tertiary-foreground);
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 10px 10px;
+}
+
+.todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--surface-tertiary-foreground);
+}
+
+.todo-content {
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.todo-row.is-completed .todo-content {
+  color: var(--muted-foreground);
+}
+
+.todo-row.is-cancelled .todo-content {
+  color: var(--surface-tertiary-foreground);
+  text-decoration: line-through;
+}
+
+.todo-spin {
+  animation: spin 1.4s linear infinite;
+}
+
+/* --- composer additions -------------------------------------------------- */
+
+/* The stop control: a small dark square, left of send, only while running. */
+.round-button.stop {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-lg);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.round-button.stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
+ * Shown in place of an enabled input when the session is suspended on a
+ * question only the desktop app can answer. Saying so beats accepting a
+ * message that would queue a turn which never returns.
+ */
+.composer-blocked {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--permission);
+  padding: 2px 2px 4px;
+}
+
+.composer-input:disabled {
+  opacity: 0.5;
+}
+
+/* --- settings ------------------------------------------------------------ */
+
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.settings-brand {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--surface-tertiary-foreground);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-heading {
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  padding: 0 2px;
+}
+
+.settings-rows {
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-primary);
+  overflow: hidden;
+}
+
+/* Hairline dividers between rows, none above the first -- as in Aside. */
+.settings-row + .settings-row,
+.settings-row + .settings-choices,
+.settings-choices + .settings-row {
+  border-top: var(--hairline) solid var(--border);
+}
+
+.settings-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.settings-row.is-button:active {
+  background: var(--muted);
+}
+
+.settings-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-row-title {
+  font-size: var(--text-sm);
+  color: var(--foreground);
+}
+
+.settings-row-description {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--muted-foreground);
+}
+
+.settings-row-control,
+.settings-row-value {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-readout.is-ok {
+  color: var(--success);
+}
+
+.settings-readout.is-bad {
+  color: var(--destructive);
+}
+
+.settings-choices {
+  background: var(--muted);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 9px 20px;
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--foreground);
+}
+
+.settings-choice + .settings-choice {
+  border-top: var(--hairline) solid var(--border);
+}
+
+.settings-choice-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-choice.is-current {
+  font-weight: var(--font-weight-medium);
+}
+
+.settings-note {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--muted-foreground);
+  padding: 0 2px;
+}

@@ -6,12 +6,15 @@ import type {
   ChildSteps,
   CitationSource,
   Entry,
+  ErrorAlert,
   MessagesResponse,
+  MiniappSettings,
   SessionRow,
   StatusResponse,
   ThreadItem,
   ThreadResponse,
   ThreadStats,
+  Todo,
   UploadedFile,
 } from './types';
 
@@ -148,7 +151,43 @@ export const api = {
     return body as { files: UploadedFile[] };
   },
 
+  /**
+   * Stop the running turn.
+   *
+   * The server kills the driver child it owns, by PID. A 409 means there
+   * was nothing running -- which is not an error worth surfacing, the
+   * composer re-enables either way.
+   */
+  stop: (sessionId: string) =>
+    request<{ ok: boolean; stopping: boolean }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/stop`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+
+  /**
+   * Answer a soft-protocol question by sending the choice as a message.
+   *
+   * Only ever used for `source: 'marker'` questions; a native pending tool
+   * is answered from the desktop app and the card says so.
+   */
+  answer: (
+    sessionId: string,
+    payload: { header: string; label: string; model?: string; effort?: string },
+  ) =>
+    request<{ accepted: boolean; queued: number; busy: boolean }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/answer`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+
   status: () => request<StatusResponse>('/api/status'),
+
+  settings: () => request<{ settings: MiniappSettings }>('/api/settings'),
+
+  saveSettings: (patch: Partial<MiniappSettings>) =>
+    request<{ settings: MiniappSettings }>('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    }),
 
   /** The session's own files, grouped into artifacts and attachments. */
   artifacts: (sessionId: string) =>
@@ -210,6 +249,7 @@ export type SocketEvent =
       sessionId: string;
       stats: ThreadStats;
       sources: Record<string, CitationSource>;
+      todos: Todo[];
     }
   /** One subagent's own timeline, as it works. */
   | ({ type: 'subagent_delta'; sessionId: string } & ChildSteps)
@@ -217,7 +257,19 @@ export type SocketEvent =
   | { type: 'stream_delta'; sessionId: string; text: string }
   | { type: 'entries'; sessionId: string; entries: Entry[] }
   | { type: 'turn_started'; sessionId: string; model: string; effort: string; startedAt: number }
-  | { type: 'turn_finished'; sessionId: string; exitCode: number | null; durationMs: number; error?: string }
+  | {
+      type: 'turn_finished';
+      sessionId: string;
+      exitCode: number | null;
+      durationMs: number;
+      error?: string;
+      /** The failure as a card; drawn by `ErrorCard`. */
+      alert?: ErrorAlert;
+      /** The user tapped Stop. Not a failure. */
+      stopped?: boolean;
+      /** The driver was reaped because the session suspended on a question. */
+      suspended?: boolean;
+    }
   | { type: 'error'; reason: string }
   | { type: 'pong' };
 

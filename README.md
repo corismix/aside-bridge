@@ -82,17 +82,19 @@ Tap the **Aside** button next to the message box and you get:
 - **Subagents** -- each spawn gets a coloured creature and its own nested
   card with the model it's on, its brief, and its tool timeline ticking
   over live. Tap through to the child's own thread.
-- **Citations** -- `[1]` chips in the answer open the source that backs
-  them.
-- **Files** -- what the agent wrote and what you sent, in a side panel;
-  markdown and images render in place.
-- **Control** -- permission mode, final-confirm, model and reasoning-effort
-  pickers, all writing to the same daemon state the desktop app reads.
-- **Context meter** -- how full the window is, and what this turn cost.
-- **Attachments** -- pick photos or files from the phone; they land on disk
-  and the agent opens them.
+- **Task list** -- the todos the agent keeps for itself, collapsed above
+  the composer and in the session panel.
+- **Questions and approvals** -- when the agent needs a decision it comes
+  through as a card with tappable options, not a wall of JSON.
+- **Stop** -- kill a running turn from the composer.
+- **Citations, files, attachments** -- `[1]` chips open their source;
+  what the agent wrote and what you sent render in a side panel; photos
+  picked from the phone land on disk and the agent opens them.
+- **Control** -- model, reasoning effort and permission pickers writing to
+  the same daemon state the desktop app reads, plus a settings screen for
+  what new sessions should default to.
 
-Setup is one prompt at the end of the wizard (or run it later):
+Setup is one prompt at the end of the wizard, or run it later:
 
 ```bash
 python3 miniapp/setup-miniapp.py
@@ -112,35 +114,11 @@ token never leaves the process, and the tunnel binary is a pinned
 cloudflared release verified against a SHA-256 vendored in this repo before
 it is ever executed.
 
-### Limitations
-
-Read these before deciding it's broken.
-
-- **Sessions you start from the Mini App (or the chat bridge) don't appear
-  in the desktop Aside app.** They're created through the CLI, and the
-  daemon marks CLI-created sessions ephemeral, which is exactly what the
-  desktop chat list filters out. The other direction works completely:
-  anything you start on the desktop is visible, continuable and watchable
-  live from your phone. That is the useful direction, and it is the one
-  this was built for.
-- **No mid-turn steering.** Same as the chat bridge: the CLI drops prompts
-  sent to a busy session, so a message you send mid-task queues and runs as
-  the next turn.
-- **Your Mac has to be awake and online.** The server and the tunnel run on
-  it. Asleep is offline.
-- **The tunnel URL changes on every restart.** Quick tunnels are ephemeral.
-  The server re-registers the menu button at the new hostname each time it
-  rotates, so it self-heals — but a link you saved goes stale. For a URL
-  that never moves, set up a named Cloudflare tunnel with your own domain
-  and point `miniapp` at it.
-- **One bot, one Mini App.** The menu button is bot-wide, so a second
-  machine using the same bot token takes the button away from the first.
-  Make a second bot with @BotFather if you want two.
-- **"Max" reasoning isn't sendable.** Aside's own UI offers it; the CLI
-  rejects `--effort max`. The picker hides it rather than silently running
-  something else and telling you it was Max.
-- **No live browser view.** You can watch the agent's tool calls, not its
-  tab.
+**[docs/MINIAPP.md](docs/MINIAPP.md)** has the architecture, the full setup
+path, the config keys, and the limitations worth reading before deciding
+something is broken — chiefly: a question the agent raises with its native
+tools can only be answered from your computer, and you can stop a turn but
+not steer one.
 
 ## Managing it
 
@@ -225,7 +203,9 @@ an approval, a blocker) escapes the fold and pings for real.
   channel system with a real steering queue -- but its delivery path
   doesn't call `steer()` yet and drops mid-turn messages. Until that
   ships, queueing is the honest behavior. (We ran the native system in
-  production for an evening and reverted.)
+  production for an evening and reverted.) You *can* stop a running turn
+  from the Mini App's composer — the server kills the `aside exec` child it
+  owns — but stopping is not steering.
 - **Serial by design.** One turn at a time; adjacent messages batch.
 - **macOS only** as written (launchd, Aside's file layout). The Telegram
   and transcript logic is portable if someone wants to PR Linux support.
@@ -273,7 +253,7 @@ upcoming turn to any level (off through ultrabrowse).
 | `com.aside.telegram-bridge.plist` | launchd template (manual installs) |
 | `miniapp/` | the Telegram Mini App: Fastify server + React web app |
 | `miniapp/setup-miniapp.py` | Mini App setup wizard (Node, build, service) |
-| `docs/MINIAPP-REPORT.md` | how the Mini App was built and verified |
+| `docs/MINIAPP.md` | Mini App: how it works, setup, limitations |
 | `docs/AUDIT.md` | independent security/robustness audit of the Mini App |
 
 </details>

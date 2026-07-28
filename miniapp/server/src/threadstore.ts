@@ -22,6 +22,7 @@
 import {
   attachChildren,
   buildThread,
+  currentTodos,
   threadStats,
   workSteps,
   type ChildSession,
@@ -29,6 +30,7 @@ import {
   type ThreadStats,
   type WorkStep,
 } from './thread.js';
+import type { Todo } from './todos.js';
 import fs from 'node:fs';
 import { readHistory } from './jsonl.js';
 import { sessionMsgFile } from './sessions.js';
@@ -95,6 +97,12 @@ export interface ThreadSnapshot {
    * has to draw the same colour the thread does.
    */
   subagents: ChildSession[];
+  /**
+   * The agent's task list, replayed from this transcript's `write_todos`
+   * calls. Drawn above the composer and in the session panel, not in the
+   * transcript, so it travels beside the items rather than among them.
+   */
+  todos: Todo[];
 }
 
 /**
@@ -150,6 +158,7 @@ export class ThreadStore {
       stats: threadStats(messages),
       sources: collectSources(messages),
       subagents: attachChildren(items, subagents.children),
+      todos: currentTodos(messages),
     };
     this.cache.delete(sessionId);
     this.cache.set(sessionId, { key, snapshot });

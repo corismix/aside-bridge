@@ -6,6 +6,7 @@
  * `{type:"auth"}` frame.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -28,7 +29,10 @@ import {
   modelLabel,
   readProviderIds,
 } from './catalog.js';
-import { StateDb, isFullAccess } from './statedb.js';
+import { StateDb, isFullAccess, isSuspended } from './statedb.js';
+import { SettingsStore, defaultSettingsPath, resolveNewSessionModel } from './settings.js';
+import { withPreamble } from './preamble.js';
+import { answerMessage } from './questions.js';
 import { ThreadStore, buildParentView, fileStamp } from './threadstore.js';
 import { SubagentIndex, toChildSession } from './subagents.js';
 import {
@@ -126,6 +130,17 @@ export interface BuildOptions {
   webDist?: string;
   jwtSecret: string;
   logger?: boolean;
+  /**
+   * The current public tunnel URL, read lazily.
+   *
+   * A function rather than a value because a quick tunnel rotates its
+   * hostname while the server runs, so a snapshot taken at boot would be
+   * wrong within the hour. The settings screen shows it; nothing depends
+   * on it.
+   */
+  publicUrl?: () => string | null;
+  /** Shown on the settings screen, so the owner can tell builds apart. */
+  version?: string;
 }
 
 export async function buildServer(
@@ -155,6 +170,12 @@ export async function buildServer(
   });
   const startedAt = Date.now();
 
+  // Read-only reader for the daemon's session table: the list, and each
+  // session's permission mode, final-confirm flag, pinned model and status.
+  // Declared before the runner because the runner's suspend watchdog reads
+  // status through it.
+  const stateDb = new StateDb(config.stateDbPath);
+
   const runner = new TurnRunner({
     asideCli: config.asideCli,
     sessionsDir: config.sessionsDir,
@@ -163,14 +184,28 @@ export async function buildServer(
     defaultEffort: config.defaultEffort,
     modelAliases: config.modelAliases,
     grantFullAccess: process.env.MINIAPP_GRANT_FULL_ACCESS === '1',
+    /**
+     * The suspend watchdog's eyes. A session blocked on a native question
+     * tool goes to `status=suspended` and the driver we spawned would
+     * otherwise hang forever waiting for a desktop-only answer.
+     *
+     * The cache is invalidated first because `StateDb.read` holds a row for
+     * 5s and the watchdog's entire job is to notice a transition promptly.
+     */
+    readStatus: async (sessionId) => {
+      stateDb.invalidate(sessionId);
+      return (await stateDb.read(sessionId)).status;
+    },
   });
   const watchers = new WatcherRegistry();
+  // Defaults for sessions this app creates, in this app's own store. See
+  // settings.ts for why nothing here writes Aside's global settings.
+  const settings = new SettingsStore(
+    defaultSettingsPath(config.miniapp.stateDir),
+  );
   // Every facade call spawns the CLI binary, so reads go through a
   // short-TTL, in-flight-coalescing cache rather than straight to it.
   const facade = new FacadeCache({ asideCli: config.asideCli });
-  // Read-only reader for the daemon's session table: the list, and each
-  // session's permission mode, final-confirm flag and pinned model.
-  const stateDb = new StateDb(config.stateDbPath);
   // Threads are built from the transcript on disk, so a rebuild is a file
   // read rather than a process spawn -- cheap enough to redo per write.
   const threads = new ThreadStore((file) =>
@@ -365,13 +400,27 @@ export async function buildServer(
       // when unreadable, and the client hides rather than guesses.
       const state = await stateDb.read(id);
 
+      /**
+       * The daemon's own status wins over the facade's.
+       *
+       * `suspended` -- blocked on a native question tool -- is the state
+       * the composer has to know about, and it is in the table. Sending a
+       * message to a suspended session queues an `aside exec` that hangs
+       * forever, so the client disables the composer on it and says why.
+       */
+      const status = state.status || session?.status || 'idle';
+
       return {
         sessionId: id,
         title: session?.title || '',
-        status: session?.status || 'idle',
+        status,
+        /** Blocked on a desktop-only question; see `isSuspended`. */
+        suspended: isSuspended(status),
         items: snapshot.items,
         stats: snapshot.stats,
         sources: snapshot.sources,
+        /** Replayed `write_todos` state, for the task-list section. */
+        todos: snapshot.todos,
         // From the snapshot, not from `children`: these carry the palette
         // slot of the spawn row each child came from, so the panel and the
         // thread draw the same creature colour.
@@ -744,21 +793,38 @@ export async function buildServer(
       if (text.length > MAX_MESSAGE_CHARS) {
         return reply.code(413).send({ error: 'text_too_long' });
       }
+      const stored = settings.read();
       try {
         const { sessionId } = await runner.createSession({
-          text: promptWithAttachments(text, attachments.map((f) => f.path)),
-          model: runner.resolveModel(body.model),
-          effort: runner.resolveEffort(body.effort),
+          // The mobile-session preamble rides on the first prompt only.
+          // It is what stops the agent calling `ask_user_question`, which
+          // suspends the session on a question no phone can answer -- see
+          // preamble.ts. It is stripped back out for display.
+          text: withPreamble(
+            promptWithAttachments(text, attachments.map((f) => f.path)),
+          ),
+          // An explicit pick from the composer wins; the stored default is
+          // only consulted when the client sent nothing.
+          model: runner.resolveModel(
+            resolveNewSessionModel(stored, body.model),
+          ),
+          effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
         });
 
         // A permission choice made on the home composer applies to the
         // session the send just created. The create-then-update shape is
         // the same one the Python bridge uses; it binds from the NEXT turn.
+        //
+        // The stored default backs the composer's choice rather than
+        // overriding it, and stays null unless the owner set one -- this
+        // app does not widen permissions on its own. See settings.ts.
         const mode = isPermissionMode(body.permissionMode)
           ? body.permissionMode
-          : undefined;
+          : (stored.defaultPermissionMode ?? undefined);
         const finalConfirm =
-          typeof body.finalConfirm === 'boolean' ? body.finalConfirm : undefined;
+          typeof body.finalConfirm === 'boolean'
+            ? body.finalConfirm
+            : (stored.defaultFinalConfirm ?? undefined);
         if (mode !== undefined || finalConfirm !== undefined) {
           void applyPermission(
             {
@@ -805,12 +871,123 @@ export async function buildServer(
       if (!sessionMsgFile(config.sessionsDir, id)) {
         return reply.code(404).send({ error: 'session_not_found' });
       }
+
+      /**
+       * Refuse rather than jam.
+       *
+       * A session suspended on a native `ask_user_question` accepts an
+       * `aside exec` and then never returns from it -- verified today
+       * against the live CLI. Queuing one turns a recoverable state into a
+       * permanently wedged session, so it is a 409 with a reason the client
+       * can put on screen instead.
+       */
+      stateDb.invalidate(id);
+      const live = await stateDb.read(id);
+      if (isSuspended(live.status)) {
+        return reply.code(409).send({
+          error: 'session_suspended',
+          reason:
+            'This session is waiting on a question that can only be answered from Aside on your computer.',
+        });
+      }
+
       const { queued } = runner.send(id, {
         text: promptWithAttachments(text, attachments.map((f) => f.path)),
         model: runner.resolveModel(body.model),
         effort: runner.resolveEffort(body.effort),
       });
       return { accepted: true, queued, busy: runner.isBusy(id) };
+    },
+  );
+
+  /**
+   * Stop the turn a session is running.
+   *
+   * The server owns the driver child, so this is a kill by PID -- SIGTERM,
+   * then SIGKILL after a grace period (see `STOP_GRACE_MS`). Never a
+   * pattern kill: the owner's live mini app service runs the same binary
+   * with the same argv, and matching on that would take it down.
+   *
+   * Answering 409 when there is nothing running is the honest reply; the
+   * composer re-enables either way.
+   */
+  app.post(
+    '/api/sessions/:id/stop',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!isValidSessionId(id)) {
+        return reply.code(400).send({ error: 'bad_session_id' });
+      }
+      if (!runner.stop(id)) {
+        return reply.code(409).send({ error: 'not_running' });
+      }
+      return { ok: true, stopping: true };
+    },
+  );
+
+  /**
+   * Answer a soft-protocol question by sending the choice as a message.
+   *
+   * Deliberately its own route rather than a plain send: it is the one
+   * place that must never be pointed at a suspended session (a native
+   * pending tool cannot be answered this way, and trying is what hangs a
+   * driver), and having a named endpoint keeps that check in one place.
+   */
+  app.post(
+    '/api/sessions/:id/answer',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = (request.body || {}) as Record<string, unknown>;
+      const label = String(body.label ?? '').trim();
+      const header = String(body.header ?? '').trim();
+      if (!isValidSessionId(id)) {
+        return reply.code(400).send({ error: 'bad_session_id' });
+      }
+      if (!label) return reply.code(400).send({ error: 'empty_answer' });
+      if (!sessionMsgFile(config.sessionsDir, id)) {
+        return reply.code(404).send({ error: 'session_not_found' });
+      }
+
+      stateDb.invalidate(id);
+      const live = await stateDb.read(id);
+      if (isSuspended(live.status)) {
+        return reply.code(409).send({
+          error: 'session_suspended',
+          reason:
+            'This question is waiting on Aside on your computer and cannot be answered from here.',
+        });
+      }
+
+      const { queued } = runner.send(id, {
+        text: answerMessage(header, label),
+        model: runner.resolveModel(body.model),
+        effort: runner.resolveEffort(body.effort),
+      });
+      return { accepted: true, queued, busy: runner.isBusy(id) };
+    },
+  );
+
+  // --- settings ----------------------------------------------------------
+
+  app.get('/api/settings', { preHandler: requireAuth }, async () => ({
+    settings: settings.read(),
+  }));
+
+  /**
+   * Partial update. Only the keys the body carries are touched, so a client
+   * that knows about one field cannot blank the others.
+   */
+  app.post(
+    '/api/settings',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const body = request.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return reply.code(400).send({ error: 'bad_body' });
+      }
+      return { settings: settings.write(body) };
     },
   );
 
@@ -913,6 +1090,26 @@ export async function buildServer(
       permission: process.env.MINIAPP_GRANT_FULL_ACCESS === '1'
         ? 'Full access'
         : 'Guard',
+      /**
+       * What the settings screen's Connection section reports.
+       *
+       * Deliberately free of anything sensitive: no token, no user id, no
+       * absolute paths. `bridgeRunning` is inferred from whether the Python
+       * bridge's config directory is on disk, which is all this process can
+       * honestly say about a service it does not own.
+       */
+      service: {
+        version: opts.version || '',
+        /** `cloudflared` or `none`, straight from the config. */
+        tunnel: config.miniapp.tunnel,
+        tunnelUrl: opts.publicUrl?.() || null,
+        port: config.port,
+        // The daemon answering the facade at all is the useful signal.
+        asideReachable: daemonDefault !== null,
+        bridgeConfigured: fs.existsSync(
+          path.join(config.miniapp.stateDir, 'config.json'),
+        ),
+      },
     };
   });
 

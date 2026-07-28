@@ -1,0 +1,390 @@
+/**
+ * Settings.
+ *
+ * The Settings row in the model picker used to close the popover and do
+ * nothing at all. This is the screen it should have opened.
+ *
+ * Structure follows Aside's own settings pages (`settings-*.js`,
+ * `use-agent-settings-*.js`, `ai-*.js`): sections with a small uppercase
+ * heading, rows carrying a title and a description on the left and the
+ * control on the right, hairline dividers between them, and a footnote
+ * where a setting's scope needs stating.
+ *
+ * Scope, stated once here and enforced on the server: everything writable
+ * on this screen is a default for sessions THIS APP creates, stored in the
+ * mini app's own file. Nothing here writes Aside's account-wide settings --
+ * a default changed from a phone must not silently retarget the sessions
+ * the owner starts on their computer. Aside's own values are shown, and
+ * shown as read-only.
+ */
+import { useEffect, useState } from 'react';
+import { AsideSymbol, Check, ChevronLeft, ProviderMark, Spinner } from './Icons';
+import { api } from '../api';
+import { haptic } from '../telegram';
+import type { MiniappSettings, StatusResponse } from '../types';
+
+function Section({
+  title,
+  children,
+  note,
+}: {
+  title: string;
+  children: React.ReactNode;
+  note?: string;
+}) {
+  return (
+    <section className="settings-section">
+      <h2 className="settings-heading">{title}</h2>
+      <div className="settings-rows">{children}</div>
+      {note ? <p className="settings-note">{note}</p> : null}
+    </section>
+  );
+}
+
+function Row({
+  title,
+  description,
+  control,
+}: {
+  title: string;
+  description?: string;
+  control: React.ReactNode;
+}) {
+  return (
+    <div className="settings-row">
+      <span className="settings-row-text">
+        <span className="settings-row-title">{title}</span>
+        {description ? (
+          <span className="settings-row-description">{description}</span>
+        ) : null}
+      </span>
+      <span className="settings-row-control">{control}</span>
+    </div>
+  );
+}
+
+/** A row that expands into a list of choices, with a tick on the live one. */
+function ChoiceRow({
+  title,
+  description,
+  value,
+  options,
+  onPick,
+}: {
+  title: string;
+  description?: string;
+  value: string;
+  options: Array<{ id: string; label: string; leading?: React.ReactNode }>;
+  onPick: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((option) => option.id === value);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="settings-row is-button"
+        aria-expanded={open}
+        onClick={() => {
+          haptic('light');
+          setOpen((prev) => !prev);
+        }}
+      >
+        <span className="settings-row-text">
+          <span className="settings-row-title">{title}</span>
+          {description ? (
+            <span className="settings-row-description">{description}</span>
+          ) : null}
+        </span>
+        <span className="settings-row-value">
+          {current?.leading}
+          {current?.label ?? 'Aside’s default'}
+        </span>
+      </button>
+      {open ? (
+        <div className="settings-choices">
+          {options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className={`settings-choice ${option.id === value ? 'is-current' : ''}`}
+              onClick={() => {
+                haptic('light');
+                onPick(option.id);
+                setOpen(false);
+              }}
+            >
+              {option.leading}
+              <span className="settings-choice-label">{option.label}</span>
+              {option.id === value ? <Check size={14} /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function Switch({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`switch ${checked ? 'is-on' : ''}`}
+      onClick={() => {
+        haptic('light');
+        onChange(!checked);
+      }}
+    >
+      <span className="switch-knob" />
+    </button>
+  );
+}
+
+export function SettingsScreen({
+  status,
+  onClose,
+}: {
+  status: StatusResponse | null;
+  onClose: () => void;
+}) {
+  const [settings, setSettings] = useState<MiniappSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.settings().then(
+      (res) => alive && setSettings(res.settings),
+      (err) => alive && setError((err as Error).message),
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /**
+   * Optimistic, then corrected by what the server stored.
+   *
+   * The same shape the permission control already uses: the row moves on
+   * tap, and a failed write puts the server's truth back rather than
+   * leaving a claim on screen we cannot stand behind.
+   */
+  const save = (patch: Partial<MiniappSettings>) => {
+    setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
+    api.saveSettings(patch).then(
+      (res) => setSettings(res.settings),
+      () => {
+        api.settings().then(
+          (res) => setSettings(res.settings),
+          () => {},
+        );
+      },
+    );
+  };
+
+  const modelOptions = [
+    { id: '', label: 'Aside’s default' },
+    ...(status?.catalog ?? []).flatMap((provider) =>
+      provider.models.map((model) => ({
+        id: `${provider.id}/${model.id}`,
+        label: `${provider.label} · ${model.label}`,
+        leading: <ProviderMark id={provider.id} size={14} />,
+      })),
+    ),
+  ];
+
+  const effortOptions = [
+    { id: '', label: 'Server default' },
+    ...(status?.effortMenu ?? []).map((option) => ({
+      id: option.id,
+      label: option.label,
+    })),
+  ];
+
+  const permissionOptions = [
+    { id: '', label: 'Leave Aside’s default' },
+    ...(status?.permissionMenu ?? []).map((option) => ({
+      id: option.id,
+      label: option.label,
+    })),
+  ];
+
+  const service = status?.service;
+
+  return (
+    <div className="app settings-screen">
+      <header className="thread-header">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onClose}
+          aria-label="Back"
+        >
+          <ChevronLeft size={20} strokeWidth={1.75} />
+        </button>
+        <span className="thread-titles">
+          <span className="thread-title">Settings</span>
+        </span>
+        <span className="settings-brand">
+          <AsideSymbol size={18} />
+        </span>
+      </header>
+
+      <div className="settings-scroll">
+        {error ? <p className="list-empty">{error}</p> : null}
+        {!settings && !error ? (
+          <p className="list-empty">
+            <Spinner size={14} /> Loading…
+          </p>
+        ) : null}
+
+        {settings ? (
+          <>
+            <Section
+              title="New sessions"
+              note="These apply to sessions you start from this app. They do not change Aside’s own settings on your computer."
+            >
+              <ChoiceRow
+                title="Model"
+                description="What a new session runs on."
+                value={
+                  settings.defaultProvider && settings.defaultModelId
+                    ? `${settings.defaultProvider}/${settings.defaultModelId}`
+                    : ''
+                }
+                options={modelOptions}
+                onPick={(id) => {
+                  const slash = id.indexOf('/');
+                  save(
+                    slash === -1
+                      ? { defaultProvider: '', defaultModelId: '' }
+                      : {
+                          defaultProvider: id.slice(0, slash),
+                          defaultModelId: id.slice(slash + 1),
+                        },
+                  );
+                }}
+              />
+              <ChoiceRow
+                title="Reasoning"
+                description="How hard a new session thinks before answering."
+                value={settings.defaultEffort}
+                options={effortOptions}
+                onPick={(id) => save({ defaultEffort: id })}
+              />
+              <ChoiceRow
+                title="Permission"
+                description="What a new session is allowed to do."
+                value={settings.defaultPermissionMode ?? ''}
+                options={permissionOptions}
+                onPick={(id) =>
+                  save({ defaultPermissionMode: id ? id : null })
+                }
+              />
+              <Row
+                title="Final confirm"
+                description="Ask before the last irreversible step of a task."
+                control={
+                  <Switch
+                    checked={settings.defaultFinalConfirm === true}
+                    label="Final confirm by default"
+                    onChange={(next) => save({ defaultFinalConfirm: next })}
+                  />
+                }
+              />
+            </Section>
+
+            <Section
+              title="Aside account"
+              note="Read-only here. Change these in Aside on your computer."
+            >
+              <Row
+                title="Account default model"
+                description="What Aside itself uses when nothing overrides it."
+                control={
+                  <span className="settings-readout">
+                    {status?.defaults.modelLabel || '—'}
+                  </span>
+                }
+              />
+              <Row
+                title="Account reasoning"
+                control={
+                  <span className="settings-readout">
+                    {status?.defaults.effortLabel || '—'}
+                  </span>
+                }
+              />
+            </Section>
+
+            <Section title="Appearance">
+              <Row
+                title="Theme"
+                description="Follows Telegram’s own light or dark setting."
+                control={<span className="settings-readout">Automatic</span>}
+              />
+            </Section>
+
+            <Section title="Connection">
+              <Row
+                title="Aside daemon"
+                control={
+                  <span
+                    className={`settings-readout ${
+                      service?.asideReachable ? 'is-ok' : 'is-bad'
+                    }`}
+                  >
+                    {service?.asideReachable ? 'Reachable' : 'Unreachable'}
+                  </span>
+                }
+              />
+              <Row
+                title="Telegram bridge"
+                description="The Python bridge that handles plain chat messages."
+                control={
+                  <span className="settings-readout">
+                    {service?.bridgeConfigured ? 'Configured' : 'Not found'}
+                  </span>
+                }
+              />
+              <Row
+                title="Tunnel"
+                description={
+                  service?.tunnelUrl || (
+                    service?.tunnel === 'cloudflared'
+                      ? 'Starting…'
+                      : 'Serving on the local network only.'
+                  ) as string
+                }
+                control={
+                  <span className="settings-readout">
+                    {service?.tunnel === 'cloudflared' ? 'cloudflared' : 'Off'}
+                  </span>
+                }
+              />
+              <Row
+                title="Mini app version"
+                control={
+                  <span className="settings-readout">
+                    {service?.version || '—'}
+                  </span>
+                }
+              />
+            </Section>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}

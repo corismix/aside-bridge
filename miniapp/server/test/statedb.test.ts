@@ -149,6 +149,10 @@ describe('StateDb.read', () => {
       finalConfirm: null,
       runtimeConfig: null,
       parentId: null,
+      // This fixture table has no `status` column at all, which is the
+      // point: an absent column reads as unknown rather than failing the
+      // whole row.
+      status: null,
       model: {
         provider: 'claude-code',
         modelId: 'claude-fable-5',
@@ -173,6 +177,10 @@ describe('StateDb.read', () => {
       finalConfirm: null,
       runtimeConfig: null,
       parentId: null,
+      // This fixture table has no `status` column at all, which is the
+      // point: an absent column reads as unknown rather than failing the
+      // whole row.
+      status: null,
       model: null,
     });
     expect(await db.read('nomodel-1')).toEqual({
@@ -181,6 +189,7 @@ describe('StateDb.read', () => {
       finalConfirm: null,
       runtimeConfig: null,
       parentId: null,
+      status: null,
       model: null,
     });
   });

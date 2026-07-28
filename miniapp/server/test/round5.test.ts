@@ -151,7 +151,10 @@ describe('turn token counters', () => {
     );
     // 120+30, 90, 140+10 -- every assistant message of the single turn.
     expect(stats.turnTokens).toBe(390);
-    expect(stats.turnStartedAt).toBe(1767657601000);
+    // The turn is dated from its USER message, not from the first assistant
+    // record -- which is what makes the streaming footer appear on send
+    // rather than on the first token. See `threadStats`.
+    expect(stats.turnStartedAt).toBe(1767657600000);
   });
 
   it('resets at each user message rather than summing the session', () => {
@@ -309,6 +312,7 @@ describe('subagent spawns and their child sessions', () => {
         status: 'running',
         toolCallId: 'toolu_spawn_one',
         modelLabel: 'Sonnet 5',
+        provider: 'claude-code',
         running: true,
         hue: 0,
       },
@@ -352,6 +356,7 @@ describe('subagent spawns and their child sessions', () => {
       status: 'idle',
       toolCallId: 'c',
       modelLabel: null,
+      provider: null,
       running: false,
     });
   });

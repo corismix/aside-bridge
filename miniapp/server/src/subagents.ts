@@ -43,6 +43,9 @@ export function toChildSession(
     status: row.status,
     toolCallId: row.toolCallId,
     modelLabel: row.model ? modelLabel(row.model.provider, row.model.modelId) : null,
+    // Carried so the card can draw that provider's real brand mark rather
+    // than one generic glyph for every model.
+    provider: row.model?.provider || null,
     running: isRunning(row.status),
   };
 }
