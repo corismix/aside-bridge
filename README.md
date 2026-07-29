@@ -102,7 +102,9 @@ python3 miniapp/setup-miniapp.py
 
 It checks for Node 20+, builds the app, installs a launchd service
 (`com.aside.miniapp`), starts a Cloudflare quick tunnel so Telegram can
-reach it over HTTPS, and prints the URL.
+reach it over HTTPS, and points the bot's menu button at it -- that button
+is the **Aside** entry you tap. Quick-tunnel URLs rotate on restart and the
+server re-registers the button each time, so it keeps working.
 
 **How auth works.** Telegram signs every Mini App launch with an HMAC over
 your bot token; the server validates that signature, checks the user id
@@ -230,10 +232,14 @@ The wizard is the same either way. Fully manual (no wizard): copy
 `com.aside.telegram-bridge.plist` into `~/Library/LaunchAgents` with the
 paths corrected, and `launchctl bootstrap gui/$(id -u) <plist>`.
 
-Style: `config.json`'s `"style"` is `"formal"` (default) or `"casual"`;
-you can fully override with your own `"persona_prompt"` / `"style_tag"`.
-Persona changes take effect on the next `/new` since it's baked in at
-session creation. `default_effort` (default `high`) sets the thinking
+Style: `config.json`'s `"style"` is `"formal"` (default, capitalised
+professional prose) or `"casual"` (deliberately lowercase, dry, texting
+slang); you can fully override with your own `"persona_prompt"` /
+`"style_tag"`. The persona is baked into a session's first message at
+creation, so an existing session keeps the voice it was created with:
+re-running `setup.py` with a different style clears the primed session
+for you, but if you hand-edit `config.json` send `/new` to pick the
+change up. `default_effort` (default `high`) sets the thinking
 effort every normal turn runs at; use `/effort` in chat to bump a single
 upcoming turn to any level (off through ultrabrowse).
 
