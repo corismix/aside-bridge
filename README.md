@@ -72,6 +72,12 @@ aside: Drafted a reply. Want to see it before I send?
 The chat is for texting your agent. The Mini App is for *watching* it work:
 the full Aside UI, inside Telegram, on the phone you already have out.
 
+https://github.com/user-attachments/assets/d119cb77-8860-463e-87b5-88b98212fc29
+
+| Sessions | Live tool stream | Approvals | Results |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/screenshots/miniapp-sessions.jpg" alt="Every Aside session on the Mac, with live status" width="220"/> | <img src="docs/screenshots/miniapp-live-transcript.jpg" alt="Tool calls and file diffs streaming in as they happen" width="220"/> | <img src="docs/screenshots/miniapp-approval.jpg" alt="An approval request rendered as a card with tappable options" width="220"/> | <img src="docs/screenshots/miniapp-result.jpg" alt="A finished task with rendered markdown and proof screenshot" width="220"/> |
+
 Tap the **Aside** button next to the message box and you get:
 
 - **Sessions** -- every Aside session on your Mac, including the ones
