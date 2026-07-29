@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildInitDataFields, signInitData } from './sign-initdata.mjs';
 
 function expandHome(p) {
@@ -30,15 +31,30 @@ function arg(name, fallback) {
     : fallback;
 }
 
-const configPath = expandHome(
-  process.env.MINIAPP_CONFIG || '~/.aside/u/0/telegram-bridge/config.json',
-);
+// Same search order the server uses: setup.py writes config.json into the
+// checkout, and the ~/.aside path is the older home.
+const configCandidates = process.env.MINIAPP_CONFIG
+  ? [expandHome(process.env.MINIAPP_CONFIG)]
+  : [
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '../..',
+        'config.json',
+      ),
+      expandHome('~/.aside/u/0/telegram-bridge/config.json'),
+    ];
+const configPath =
+  configCandidates.find((candidate) => fs.existsSync(candidate)) ??
+  configCandidates[0];
 
 let config;
 try {
   config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (err) {
   console.error(`cannot read config at ${configPath}: ${err.message}`);
+  if (configCandidates.length > 1) {
+    console.error(`looked in: ${configCandidates.join(', ')}`);
+  }
   process.exit(1);
 }
 

@@ -8,8 +8,11 @@
  * or test instance run without doing that, and they are pinned here
  * because the failure is invisible from inside the process that causes it.
  */
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import { configCandidates, loadConfig } from '../src/config.js';
 import { makeTestEnv, type TestEnv } from './helpers.js';
 
 let env: TestEnv | undefined;
@@ -77,5 +80,45 @@ describe('tunnel + menu kill-switches', () => {
     const config = withMiniapp({});
     expect(config.miniapp.tunnel).toBe('cloudflared');
     expect(config.miniapp.autoRegisterMenu).toBe(true);
+  });
+});
+
+/**
+ * Where the bridge config is looked for.
+ *
+ * `setup.py` writes config.json into the checkout, but this server only
+ * ever looked at `~/.aside/u/0/telegram-bridge/config.json`. A user who
+ * had just finished setup and ran the documented `npm start` was told no
+ * config existed. Both locations are searched now, checkout first.
+ */
+describe('config discovery', () => {
+  let savedConfig: string | undefined;
+
+  beforeEach(() => {
+    savedConfig = process.env.MINIAPP_CONFIG;
+  });
+
+  afterEach(() => {
+    if (savedConfig === undefined) delete process.env.MINIAPP_CONFIG;
+    else process.env.MINIAPP_CONFIG = savedConfig;
+  });
+
+  it('honours MINIAPP_CONFIG above everything else', () => {
+    process.env.MINIAPP_CONFIG = '/tmp/elsewhere/config.json';
+    expect(configCandidates()).toEqual(['/tmp/elsewhere/config.json']);
+  });
+
+  it('falls back to the checkout first, then the ~/.aside path', () => {
+    delete process.env.MINIAPP_CONFIG;
+    // test/ sits the same three levels below the repo root that src/ and
+    // dist/ do, so this is the same root the implementation resolves.
+    const repoRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../..',
+    );
+    expect(configCandidates()).toEqual([
+      path.join(repoRoot, 'config.json'),
+      path.join(os.homedir(), '.aside/u/0/telegram-bridge/config.json'),
+    ]);
   });
 });

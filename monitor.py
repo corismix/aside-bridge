@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Live monitor + kill switch for the Aside Telegram bridge.
 
-Run in any terminal:  python3 ~/.aside/u/0/telegram-bridge/monitor.py
+Run in any terminal:  bridgemon watch
+(or directly: python3 <your checkout>/monitor.py)
 
 Streams, in one merged timeline:
   - bridge events (polling health, incoming msgs, commands, exec runs, replies)

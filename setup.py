@@ -168,16 +168,54 @@ def step_preferences(detected_name):
     return name, style
 
 
+def drop_stale_session(cfg):
+    """Forget the primed session so the new persona actually applies.
+
+    The persona is baked into a session's first message at creation time,
+    so an existing session keeps the voice it was created with forever --
+    change `style` and the agent goes on replying in the old one, which
+    reads as the setting having been ignored. state.json is cleared too,
+    not just the config: bridge.py does
+    `state.setdefault("session_id", CONFIG.get("session_id"))`, so a
+    session id already in the state file wins and editing the config
+    alone changes nothing.
+    """
+    cfg.pop("session_id", None)
+    state_path = os.path.join(BRIDGE_DIR, "state.json")
+    if not os.path.exists(state_path):
+        return
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (ValueError, OSError):
+        return
+    if not state.pop("session_id", None):
+        return
+    try:
+        with open(state_path, "w") as f:
+            json.dump(state, f, indent=2)
+    except OSError as e:
+        warn("couldn't clear the old session from state.json: %s" % e)
+
+
 def write_config(token, chat_id, name, style, cli):
     cfg = {}
+    prior = {}
     for path in (CONFIG_PATH, EXAMPLE_PATH):
         if os.path.exists(path):
             try:
                 with open(path) as f:
                     cfg = json.load(f)
+                if path == CONFIG_PATH:
+                    prior = dict(cfg)
                 break
             except ValueError:
                 pass
+    # Only when reconfiguring an existing install: a fresh one has no
+    # session to be stale.
+    persona_changed = bool(prior) and (
+        prior.get("style", "formal") != style
+        or prior.get("owner_name") != name)
     cfg.update({
         "token": token,
         "chat_id": chat_id,
@@ -186,10 +224,15 @@ def write_config(token, chat_id, name, style, cli):
         "aside_cli": cli,
     })
     cfg.setdefault("default_model", "claude-sonnet-5")
+    if persona_changed:
+        drop_stale_session(cfg)
     with open(CONFIG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
     os.chmod(CONFIG_PATH, 0o600)
     ok("config.json written (chmod 600 -- keep it private)")
+    if persona_changed:
+        ok("style changed -- the next message starts a fresh session so "
+           "it takes effect")
 
 
 def register_bot_commands(token):
@@ -255,6 +298,70 @@ def install_service():
     return True
 
 
+def shell_rc():
+    """The rc file this user's login shell actually reads."""
+    shell = os.path.basename(os.environ.get("SHELL", "zsh"))
+    if shell == "bash":
+        # bash reads .bash_profile for login shells, which is what
+        # Terminal.app starts; fall back to .bashrc if that is the one
+        # they keep.
+        profile = os.path.expanduser("~/.bash_profile")
+        if not os.path.exists(profile) \
+                and os.path.exists(os.path.expanduser("~/.bashrc")):
+            return os.path.expanduser("~/.bashrc")
+        return profile
+    if shell == "fish":
+        return os.path.expanduser("~/.config/fish/config.fish")
+    return os.path.expanduser("~/.zshrc")
+
+
+def on_path(bin_dir):
+    entries = [os.path.expanduser(p)
+               for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    return os.path.realpath(bin_dir) in [os.path.realpath(p)
+                                         for p in entries]
+
+
+def offer_path_fix(bin_dir):
+    """~/bin is not on PATH by default on macOS, so `bridgemon` would
+    simply not be found -- every management command in the README fails
+    for a fresh user. Offer to fix it rather than printing a warning."""
+    if on_path(bin_dir):
+        return
+    rc = shell_rc()
+    is_fish = rc.endswith("config.fish")
+    line = ("fish_add_path $HOME/bin" if is_fish
+            else 'export PATH="$HOME/bin:$PATH"')
+    say("")
+    warn("~/bin is not on your PATH, so `bridgemon` won't be found.")
+    say("  %sI can add this to %s:%s" % (DIM, rc, RESET))
+    say("    %s%s%s" % (BOLD, line, RESET))
+    if not ask("  Add it? (y/n)", "y").lower().startswith("y"):
+        say("  %sSkipped. Add it yourself, or call it by path:%s"
+            % (DIM, RESET))
+        say("    %spython3 %s status%s"
+            % (DIM, os.path.join(BRIDGE_DIR, "bridgemon.py"), RESET))
+        return
+    try:
+        existing = ""
+        if os.path.exists(rc):
+            with open(rc) as f:
+                existing = f.read()
+        if line in existing:
+            ok("%s already has it -- open a new terminal to pick it up" % rc)
+            return
+        os.makedirs(os.path.dirname(rc), exist_ok=True)
+        with open(rc, "a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write("\n# added by aside-telegram-bridge setup\n%s\n" % line)
+        ok("added to %s -- open a new terminal, or run: %s"
+           % (rc, "source %s" % rc))
+    except OSError as e:
+        warn("couldn't write %s: %s" % (rc, e))
+        say("  %sAdd this line yourself: %s%s" % (DIM, line, RESET))
+
+
 def offer_bridgemon():
     bin_dir = os.path.expanduser("~/bin")
     link = os.path.join(bin_dir, "bridgemon")
@@ -266,9 +373,11 @@ def offer_bridgemon():
         if os.path.islink(link) or os.path.exists(link):
             os.remove(link)
         os.symlink(os.path.join(BRIDGE_DIR, "bridgemon.py"), link)
-        ok("linked ~/bin/bridgemon (make sure ~/bin is on your PATH)")
+        ok("linked ~/bin/bridgemon")
     except OSError as e:
         warn("couldn't create the symlink: %s" % e)
+        return
+    offer_path_fix(bin_dir)
 
 
 def offer_miniapp():
@@ -329,7 +438,7 @@ def main():
     offer_bridgemon()
 
     say("")
-    say("%s— Done! —%s" % (BOLD, RESET))
+    say("%s— Bridge installed —%s" % (BOLD, RESET))
     if started:
         say("  Text %s@%s%s anything. First reply takes ~30s while it"
             % (BOLD, bot.get("username", "your bot"), RESET))
@@ -337,6 +446,14 @@ def main():
             " fast.")
     say("  Useful commands: /status /usage /model /sessions /new")
     say("  Monitor or stop any time: bridgemon watch")
+
+    # Last, and after the bridge has already reported success: the Mini
+    # App needs Node and builds a web app, and nothing it does should be
+    # able to make a working bridge install look like a failure.
+    offer_miniapp()
+
+    say("")
+    say("%s— Done! —%s" % (BOLD, RESET))
     say("")
 
 

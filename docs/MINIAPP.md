@@ -90,9 +90,19 @@ From the repo root:
 python3 miniapp/setup-miniapp.py
 ```
 
-That checks Node, runs `npm install && npm run build`, installs a launchd
-service (`com.aside.miniapp`), starts a Cloudflare quick tunnel, registers
-the bot's menu button at the tunnel URL, and prints the URL.
+That checks Node and finds the bridge config, runs `npm install && npm run
+build`, installs a launchd service (`com.aside.miniapp`), starts a
+Cloudflare quick tunnel, registers the bot's menu button at the tunnel
+URL, and prints the URL.
+
+The menu button is the **Aside** entry next to the message box, and
+registering it is what gives you something to tap. The wizard offers it
+and defaults to yes; say no only if that bot's button already points
+somewhere you want to keep. It is bot-wide, so one bot serves one Mini App
+— see [Running a second instance](#running-a-second-instance). With it
+off, set the button by hand in @BotFather → Bot Settings → Menu Button,
+and expect to redo that on every restart, since only auto-registration
+follows the tunnel URL when it rotates.
 
 To do it by hand instead:
 
@@ -106,7 +116,11 @@ npm start          # serves on 127.0.0.1:8790
 ### Configure
 
 Optional. Everything below lives in the `miniapp` section of the bridge's
-`config.json` (`~/.aside/u/0/telegram-bridge/config.json`):
+`config.json`, which `setup.py` writes into your checkout (so
+`~/aside-telegram-bridge/config.json` for a one-line install). The server
+looks there first and falls back to
+`~/.aside/u/0/telegram-bridge/config.json`; `MINIAPP_CONFIG` overrides
+both, and the launchd service sets it explicitly.
 
 | key | default | what it does |
 |---|---|---|

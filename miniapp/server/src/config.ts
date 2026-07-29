@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Every effort level Aside itself names, in its own order.
@@ -139,11 +140,37 @@ export function expandHome(p: string): string {
   return p;
 }
 
-function configPath(): string {
-  return expandHome(
-    process.env.MINIAPP_CONFIG ||
-      '~/.aside/u/0/telegram-bridge/config.json',
+/**
+ * Where the bridge's config.json might live, best candidate first.
+ *
+ * `setup.py` writes it into the repo checkout, so that is where a wizard
+ * install actually keeps it. `~/.aside/u/0/telegram-bridge/config.json`
+ * was the documented location and is still searched, so an install that
+ * put it there keeps working. Both are tried because someone running
+ * `npm start` by hand should not have to know which layout they got.
+ *
+ * `MINIAPP_CONFIG` overrides everything: the launchd plist sets it, and
+ * so do the tests.
+ */
+export function configCandidates(): string[] {
+  const explicit = process.env.MINIAPP_CONFIG;
+  if (explicit) return [expandHome(explicit)];
+  // src/config.ts and dist/config.js are both three levels below the
+  // repo root (miniapp/server/{src,dist}), so this resolves either way.
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../..',
   );
+  return [
+    path.join(repoRoot, 'config.json'),
+    expandHome('~/.aside/u/0/telegram-bridge/config.json'),
+  ];
+}
+
+function configPath(): string {
+  const candidates = configCandidates();
+  return candidates.find((candidate) => fs.existsSync(candidate))
+    ?? candidates[0];
 }
 
 function asEffort(value: unknown, fallback: EffortLevel): EffortLevel {
@@ -158,8 +185,14 @@ export function loadConfig(): MiniappConfig {
   try {
     raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   } catch (err) {
+    const tried = configCandidates();
+    const where = tried.length > 1
+      ? ` (looked in: ${tried.join(', ')})`
+      : '';
     throw new Error(
-      `cannot read miniapp config at ${file}: ${(err as Error).message}`,
+      `cannot read miniapp config at ${file}: ${(err as Error).message}` +
+        `${where}. Run the bridge setup first (python3 setup.py), or set ` +
+        'MINIAPP_CONFIG to your config.json.',
     );
   }
 

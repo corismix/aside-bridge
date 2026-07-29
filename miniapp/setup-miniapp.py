@@ -22,7 +22,13 @@ import urllib.request
 
 MINIAPP_DIR = os.path.dirname(os.path.realpath(__file__))
 BRIDGE_DIR = os.path.dirname(MINIAPP_DIR)
-DEFAULT_CONFIG = os.path.expanduser("~/.aside/u/0/telegram-bridge/config.json")
+# setup.py writes config.json into the checkout; the ~/.aside path is the
+# older documented home. Search both so running this wizard standalone
+# finds the config a wizard install actually produced.
+CONFIG_CANDIDATES = (
+    os.path.join(BRIDGE_DIR, "config.json"),
+    os.path.expanduser("~/.aside/u/0/telegram-bridge/config.json"),
+)
 LABEL = "com.aside.miniapp"
 PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % LABEL)
 
@@ -131,11 +137,27 @@ def build():
 # --- step 3: config ------------------------------------------------------
 
 
+def discover_config():
+    """The bridge config this machine actually has, or None."""
+    env = os.environ.get("MINIAPP_CONFIG")
+    if env:
+        return os.path.expanduser(env)
+    for candidate in CONFIG_CANDIDATES:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def load_config(path):
     if not os.path.exists(path):
         fail("bridge config not found at %s" % path)
-        say("  Run the bridge's own setup.py first -- the Mini App reuses")
-        say("  its bot token and chat id.")
+        say("  The Mini App reuses the chat bridge's bot token and chat id,")
+        say("  so the bridge has to be set up first:")
+        say("    %spython3 %s%s"
+            % (DIM, os.path.join(BRIDGE_DIR, "setup.py"), RESET))
+        say("  Looked in:")
+        for candidate in CONFIG_CANDIDATES:
+            say("    %s%s%s" % (DIM, candidate, RESET))
         sys.exit(1)
     with open(path) as fh:
         return json.load(fh)
@@ -207,8 +229,13 @@ def configure(config_path):
     say("  App at a time: turning this on here takes the button away from")
     say("  any other machine or dev instance using the same bot token. If")
     say("  you want two, make a second bot with @BotFather.%s" % RESET)
+    say("  %sSay no only if this bot's button is already pointed somewhere"
+        % DIM)
+    say("  you want to keep -- a quick tunnel's URL changes on every")
+    say("  restart, and only this setting re-points the button when it"
+        " does.%s" % RESET)
     auto_menu = ask_yes_no("  Register the menu button automatically?",
-                           default=False)
+                           default=True)
 
     section.update({
         "port": port,
@@ -333,14 +360,21 @@ def main():
 
     step(1, total, "Checking prerequisites")
     check_node()
+    # Resolved before the build, not after: `npm install && npm run build`
+    # takes minutes, and finding out afterwards that there is no bridge
+    # config to read wastes all of it.
+    config_path = discover_config()
+    if config_path and os.path.exists(config_path):
+        ok("bridge config at %s" % config_path)
+    else:
+        config_path = ask("  Bridge config path", CONFIG_CANDIDATES[0])
+        config_path = os.path.expanduser(config_path)
+        load_config(config_path)  # exits with guidance if it is not there
 
     step(2, total, "Building")
     build()
 
     step(3, total, "Configuring")
-    config_path = os.environ.get("MINIAPP_CONFIG") or ask(
-        "Bridge config path", DEFAULT_CONFIG)
-    config_path = os.path.expanduser(config_path)
     section = configure(config_path)
 
     step(4, total, "Installing the background service")
@@ -365,18 +399,39 @@ def main():
     say()
     say("%s  Done.%s" % (GREEN + BOLD, RESET))
     say()
-    if section.get("auto_register_menu") and url:
-        say("  Open Telegram and tap the %sAside%s button next to the"
-            % (BOLD, RESET))
-        say("  message box in your chat with the bot.")
-    else:
-        say("  Menu registration is off. To open the Mini App, either:")
-        say("    %s- set miniapp.auto_register_menu to true and restart%s"
-            % (DIM, RESET))
-        say("    %s- or set the menu button by hand in @BotFather"
-            " → Bot Settings → Menu Button%s" % (DIM, RESET))
+    if section.get("tunnel") != "cloudflared":
+        say("  The tunnel is off, so there is no public HTTPS URL and")
+        say("  Telegram cannot reach this server yet. The Mini App needs")
+        say("  one: re-run this wizard and say yes to the tunnel, or point")
+        say("  miniapp.tunnel at your own.")
+    elif section.get("auto_register_menu"):
         if url:
-            say("    %s  using: %s%s" % (DIM, url, RESET))
+            say("  Open Telegram and tap the %sAside%s button next to the"
+                % (BOLD, RESET))
+            say("  message box in your chat with the bot.")
+            say("  %sIf it is not there yet, give it a few seconds and"
+                % DIM)
+            say("  reopen the chat -- Telegram caches the button.%s" % RESET)
+        else:
+            say("  The tunnel had not come up yet, so the menu button is")
+            say("  not registered. The server does it by itself as soon as")
+            say("  the URL appears -- watch for it with:")
+            say("    %sbridgemon miniapp logs%s" % (DIM, RESET))
+    else:
+        say("  Menu registration is off, so there is no %sAside%s button"
+            % (BOLD, RESET))
+        say("  in Telegram yet. To get one, either:")
+        say("    - set %sminiapp.auto_register_menu%s to true in %s,"
+            % (BOLD, RESET, config_path))
+        say("      then %sbridgemon miniapp restart%s  (recommended --"
+            % (BOLD, RESET))
+        say("      it re-points the button when the URL rotates)")
+        say("    - or set it by hand in @BotFather → Bot Settings →")
+        say("      Menu Button%s" % (":" if url else ""))
+        if url:
+            say("        %s%s%s" % (BOLD, url, RESET))
+            say("      %s(this URL dies on the next restart)%s"
+                % (DIM, RESET))
     say()
     say("  %sNote: a quick tunnel's URL changes on every restart. The"
         % DIM)
