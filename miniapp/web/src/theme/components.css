@@ -150,7 +150,16 @@
   color: var(--accent-foreground);
   font-size: var(--text-sm);
   white-space: nowrap;
-  flex: none;
+  /*
+   * A pill must be able to LOSE. A model pill can carry an arbitrary id --
+   * `oc/deepseek-v4-flash-free(max)` came in from the field -- and with
+   * `flex: none` that id made the composer wider than the phone, which
+   * panned the entire app sideways. The pill now shrinks and its label
+   * ellipsizes; the full name is one tap away in the picker.
+   */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   transition: background var(--duration) var(--ease-out);
 }
 
@@ -158,9 +167,26 @@
   background: var(--accent);
 }
 
+/* The brand mark and chevron keep their size; only the text gives way. */
+.pill > svg {
+  flex: none;
+}
+
+/*
+ * The effort pill's labels are a short bounded set (Low..Ultrabrowse), so
+ * it never yields -- otherwise the flex algorithm would nibble at "High"
+ * while the model pill is the one overflowing.
+ */
+.pill-effort {
+  flex: none;
+}
+
 .pill-label {
   font-weight: var(--font-weight-medium);
   letter-spacing: -0.005em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* --- session list toolbar ------------------------------------------------ */
@@ -650,6 +676,9 @@
   font-weight: var(--font-weight-medium);
   color: var(--secondary-foreground);
   white-space: nowrap;
+  /* Same defence as the pills: a label can clip, but never widen the bar. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* Full access is the one orange thing in the UI, as in the sidepanel. */
@@ -1616,6 +1645,27 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/*
+ * The model badge meets the same arbitrary ids the composer pill does.
+ * It shrinks (overriding `.badge`'s `flex: none`) instead of crushing the
+ * title, and its label ellipsizes; the mark keeps its size.
+ */
+.subagent-model {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.subagent-model > svg {
+  flex: none;
+}
+
+.subagent-model-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .subagent-open {

@@ -317,7 +317,11 @@ export function Composer({
               onOpen={onOpenModel}
               mark={pills.provider}
             />
-            <Pill label={pills.effortLabel} onOpen={onOpenEffort} />
+            <Pill
+              label={pills.effortLabel}
+              onOpen={onOpenEffort}
+              className="pill-effort"
+            />
           </>
         ) : (
           <span className="composer-spacer" />
@@ -411,7 +415,11 @@ export function BottomBar({
         onOpen={onOpenModel}
         mark={pills.provider}
       />
-      <Pill label={pills.effortLabel} onOpen={onOpenEffort} />
+      <Pill
+        label={pills.effortLabel}
+        onOpen={onOpenEffort}
+        className="pill-effort"
+      />
     </div>
   );
 }
