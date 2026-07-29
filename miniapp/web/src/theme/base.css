@@ -12,6 +12,19 @@ body,
   height: 100%;
 }
 
+/*
+ * The app is a column; it has no horizontal dimension to offer. Without
+ * this, any one element that out-grows the viewport -- a long model id in
+ * a pill was the one that shipped -- lets the whole app pan sideways in
+ * Telegram's webview. Clipping at the root makes that a local, per-element
+ * problem instead of a whole-app one. `position: fixed` popovers and
+ * sheets are unaffected.
+ */
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   background: var(--page);

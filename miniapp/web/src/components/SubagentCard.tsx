@@ -67,7 +67,7 @@ export function SubagentCard({
             {child?.modelLabel ? (
               <span className="badge subagent-model">
                 <ProviderMark id={child.provider || ''} size={11} />
-                {child.modelLabel}
+                <span className="subagent-model-label">{child.modelLabel}</span>
               </span>
             ) : null}
             <StatusBadge status={child?.status} running={running} />
