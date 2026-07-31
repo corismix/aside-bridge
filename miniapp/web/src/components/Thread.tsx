@@ -99,6 +99,7 @@ export function Thread({
   onInspectSubagent,
   onOpenCitation,
   onAnswer,
+  onRecover,
   busy,
 }: {
   items: ThreadItem[];
@@ -110,6 +111,13 @@ export function Thread({
   onOpenCitation: (mark: CitationMark) => void;
   /** Send a question's chosen option as a follow-up message. */
   onAnswer?: (header: string, label: string) => Promise<void>;
+  /**
+   * Start a new session from a question only the desktop can answer.
+   *
+   * The card offers this instead of a dead read-only notice; see
+   * `QuestionCard`.
+   */
+  onRecover?: (label: string) => Promise<void>;
   /** A send is in flight, so question cards hold their buttons. */
   busy?: boolean;
 }) {
@@ -153,6 +161,7 @@ export function Thread({
               item={item}
               busy={busy}
               onAnswer={onAnswer}
+              onRecover={onRecover}
             />
           );
         }

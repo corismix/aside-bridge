@@ -18,7 +18,7 @@
 import type { FacadeMessage } from './facade.js';
 import type { HistoryMessage } from './jsonl.js';
 import { splitAttachmentHeader } from './uploads.js';
-import { stripPreamble } from './preamble.js';
+import { stripAgentDirectives } from './preamble.js';
 import { classifyError, type ErrorAlert } from './errors.js';
 import {
   QUESTION_TOOLS,
@@ -726,12 +726,12 @@ export function buildThread(
       // belongs to the agent, not to the reader -- so it comes back off and
       // becomes chips. Files attached in the browser arrive as structured
       // metadata instead; both end up in the same place.
-      // The mobile-session preamble is stripped for the same reason the
-      // attachment header is: it belongs to the agent, not to the reader,
-      // and left in it makes the user's first bubble a wall of protocol
-      // instructions and titles the session after them.
+      // The mobile-session preamble and the follow-up reminder are
+      // stripped for the same reason the attachment header is: they belong
+      // to the agent, not to the reader, and left in they make the user's
+      // bubbles a wall of protocol instructions.
       const split = splitAttachmentHeader(
-        stripPreamble(textParts(msg.content)),
+        stripAgentDirectives(textParts(msg.content)),
       );
       const text = split.text.trim();
       const attachments = (msg as HistoryMessage).attachments?.length

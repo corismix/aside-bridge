@@ -288,6 +288,7 @@ export default function App() {
     effortId: string;
     permissionMode: string | null;
     finalConfirm: boolean | null;
+    softConfirm?: boolean;
     onPickMode: (id: string) => void;
     onToggleConfirm: (next: boolean) => void;
   }) =>
@@ -318,6 +319,7 @@ export default function App() {
         options={permissionMenu}
         current={current.permissionMode}
         finalConfirm={current.finalConfirm}
+        softConfirm={current.softConfirm}
         onPickMode={current.onPickMode}
         onToggleConfirm={current.onToggleConfirm}
         onClose={closePicker}
@@ -362,6 +364,8 @@ export default function App() {
           ...pills,
           permissionMode: newMode,
           finalConfirm: newFinalConfirm,
+          // A session started here is a mobile session by definition.
+          softConfirm: true,
           onPickMode: (id) => {
             setNewMode(id);
             haptic('light');
@@ -384,6 +388,10 @@ export default function App() {
       onInspectSubagent={(id, parentTitle) =>
         openThread({ id, parentTitle }, false)
       }
+      onOpenRecovered={(id) => {
+        void loadSessions();
+        openThread({ id });
+      }}
       pills={pills}
       // Whether the user has actively chosen; when they have not, the
       // thread shows the session's own model rather than the account
@@ -406,6 +414,7 @@ function ThreadScreen({
   parentTitle,
   onBack,
   onInspectSubagent,
+  onOpenRecovered,
   pills,
   hasModelOverride,
   hasEffortOverride,
@@ -423,6 +432,8 @@ function ThreadScreen({
   onBack: () => void;
   /** Push a child thread; the second argument is THIS thread's title. */
   onInspectSubagent: (childId: string, parentTitle: string) => void;
+  /** Replace this thread with the session that continues from it. */
+  onOpenRecovered: (sessionId: string) => void;
   pills: {
     provider: string;
     modelId: string;
@@ -444,6 +455,7 @@ function ThreadScreen({
     effortId: string;
     permissionMode: string | null;
     finalConfirm: boolean | null;
+    softConfirm?: boolean;
     onPickMode: (id: string) => void;
     onToggleConfirm: (next: boolean) => void;
   }) => React.ReactNode;
@@ -560,6 +572,27 @@ function ThreadScreen({
     });
   };
 
+  /**
+   * Carry on from a question only the desktop could answer.
+   *
+   * The stuck session stays stuck -- nothing can change that -- so this
+   * starts a NEW one, seeded by the server from the pending question, the
+   * option just tapped, and the stuck session's own opening message. The
+   * new thread replaces this one on screen, because it is where the
+   * conversation actually continues.
+   */
+  const recover = async (label: string) => {
+    const res = await api.recover(sessionId, {
+      answer: label,
+      model:
+        effective.provider && effective.modelId
+          ? `${effective.provider}/${effective.modelId}`
+          : undefined,
+      effort: effective.effortId,
+    });
+    onOpenRecovered(res.sessionId);
+  };
+
   const setPermission = async (patch: {
     mode?: string;
     finalConfirm?: boolean;
@@ -630,6 +663,7 @@ function ThreadScreen({
           }
           onOpenCitation={setCitation}
           onAnswer={answer}
+          onRecover={recover}
           busy={sending || thread.busy}
         />
 
@@ -676,7 +710,7 @@ function ThreadScreen({
           // forever, so the composer refuses rather than jamming.
           blockedReason={
             thread.suspended
-              ? 'Waiting on a question that can only be answered from Aside on your computer.'
+              ? 'Waiting on a question that can only be answered from Aside on your computer. Use “Continue in a new session” on the question above to carry on from here.'
               : null
           }
           above={<TodoSection todos={thread.todos} />}
@@ -719,6 +753,7 @@ function ThreadScreen({
         ...effective,
         permissionMode: thread.permissionMode,
         finalConfirm: thread.finalConfirm,
+        softConfirm: thread.softConfirm,
         onPickMode: (id) => void setPermission({ mode: id }),
         onToggleConfirm: (next) => void setPermission({ finalConfirm: next }),
       })}

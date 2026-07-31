@@ -325,8 +325,17 @@ export interface ThreadResponse {
   permission: string | null;
   /** The raw enum (`guard`, `full-access`, …) the picker checkmarks. */
   permissionMode: string | null;
-  /** `runtimeConfig.finalConfirm`; null means unreadable. */
+  /**
+   * What the confirm-before-acting switch shows.
+   *
+   * On a session driven from a phone that is this app's SOFT flag, not
+   * the daemon's `runtimeConfig.finalConfirm` -- which is held at false
+   * there on purpose, because it mandates the one tool that bricks a
+   * mobile session. Null means unreadable.
+   */
   finalConfirm: boolean | null;
+  /** True when the confirm toggle means the soft protocol, not the daemon's. */
+  softConfirm?: boolean;
   /** Per-session model; null means fall back to the account default. */
   model: ThreadModel | null;
 }

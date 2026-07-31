@@ -292,13 +292,20 @@ export function SettingsScreen({
                   save({ defaultPermissionMode: id ? id : null })
                 }
               />
+              {/*
+                Not the daemon's `finalConfirm`. That one mandates the
+                native confirmation tool, which can only be answered from
+                Aside on the desktop -- so on a session started here it
+                guarantees a thread that dies at the first external action.
+                This asks on a card the phone can answer instead.
+              */}
               <Row
-                title="Final confirm"
-                description="Ask before the last irreversible step of a task."
+                title="Confirm before acting"
+                description="A new session asks here, on a card you can answer, before anything external or irreversible."
                 control={
                   <Switch
                     checked={settings.defaultFinalConfirm === true}
-                    label="Final confirm by default"
+                    label="Confirm before acting by default"
                     onChange={(next) => save({ defaultFinalConfirm: next })}
                   />
                 }

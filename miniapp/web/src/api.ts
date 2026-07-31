@@ -107,10 +107,12 @@ export const api = {
     }),
 
   /**
-   * Change a session's permission mode / final-confirm toggle.
+   * Change a session's permission mode / confirm-before-acting toggle.
    *
-   * The response echoes what the daemon now has, read back from its own
+   * The response echoes what the server now has, read back from its own
    * state, so the UI checkmarks reality rather than the request.
+   * `softConfirm` says which meaning the toggle took: on a session driven
+   * from a phone it is the soft protocol, never the daemon's native flag.
    */
   permission: (
     sessionId: string,
@@ -121,11 +123,31 @@ export const api = {
       permission: string | null;
       permissionMode: string | null;
       finalConfirm: boolean | null;
+      softConfirm?: boolean;
       appliesFrom: string;
     }>(`/api/sessions/${encodeURIComponent(sessionId)}/permission`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  /**
+   * Start a new session that carries on from one stuck on a native
+   * question.
+   *
+   * Nothing can answer the stuck session's prompt from here -- the daemon
+   * holds it for the desktop sidepanel. So the way forward is a fresh
+   * session seeded with what was asked and what the user chose. The server
+   * reads the question from the transcript itself; `answer` is the only
+   * part the client supplies.
+   */
+  recover: (
+    sessionId: string,
+    payload: { answer: string; model?: string; effort?: string },
+  ) =>
+    request<{ sessionId: string; accepted: boolean; from: string }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/recover`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
 
   /**
    * Upload files. `sessionId` is optional -- the home composer has no

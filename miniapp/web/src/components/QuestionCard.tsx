@@ -30,6 +30,15 @@ export interface QuestionCardProps {
   item: QuestionItem;
   /** Send a choice. Absent on a card that cannot be answered from here. */
   onAnswer?: (header: string, label: string) => Promise<void> | void;
+  /**
+   * Carry on in a NEW session, seeded with this question and the option
+   * the user picked.
+   *
+   * Only ever passed for a pending NATIVE question, which is the one card
+   * that cannot be answered from here. Absent means the dead end stays a
+   * dead end, which is what happened before this existed.
+   */
+  onRecover?: (label: string) => Promise<void> | void;
   /** True while a send from this thread is in flight. */
   busy?: boolean;
 }
@@ -71,7 +80,12 @@ function Options({
   );
 }
 
-export function QuestionCard({ item, onAnswer, busy }: QuestionCardProps) {
+export function QuestionCard({
+  item,
+  onAnswer,
+  onRecover,
+  busy,
+}: QuestionCardProps) {
   /**
    * The option this client just tapped.
    *
@@ -86,15 +100,34 @@ export function QuestionCard({ item, onAnswer, busy }: QuestionCardProps) {
 
   const settled = item.status === 'answered';
   const live = item.answerable && !settled && Boolean(onAnswer);
-  const disabled = !live || sending || Boolean(busy) || chosen !== null;
+  /**
+   * The dead end, with a way out.
+   *
+   * A pending native question cannot be answered from here -- the daemon
+   * is holding the session for the desktop sidepanel and no request this
+   * app can make reaches it. What CAN happen is a new session that starts
+   * already knowing what was asked and what the user picked, so the
+   * options become tappable again: they seed the continuation rather than
+   * answering the session they were asked in. The stuck one is untouched,
+   * because nothing can touch it.
+   */
+  const recoverable = !settled && !item.answerable && Boolean(onRecover);
+  const disabled =
+    (!live && !recoverable) || sending || Boolean(busy) || chosen !== null;
 
   const send = async (header: string, label: string) => {
-    if (!onAnswer || disabled) return;
+    if (disabled) return;
+    const act = recoverable
+      ? () => onRecover!(label)
+      : onAnswer
+        ? () => onAnswer(header, label)
+        : null;
+    if (!act) return;
     haptic('light');
     setChosen(label);
     setSending(true);
     try {
-      await onAnswer(header, label);
+      await act();
     } catch {
       // Let the reader try again rather than leaving a choice that never
       // went anywhere ticked.
@@ -107,7 +140,7 @@ export function QuestionCard({ item, onAnswer, busy }: QuestionCardProps) {
   return (
     <div
       className={`question-card ${settled ? 'is-settled' : ''} ${
-        live ? '' : 'is-readonly'
+        live || recoverable ? '' : 'is-readonly'
       }`}
     >
       {item.questions.map((block, index) => (
@@ -139,7 +172,7 @@ export function QuestionCard({ item, onAnswer, busy }: QuestionCardProps) {
         "neither of those, here is what I actually want" -- which is what
         the desktop card's own reply field is for.
       */}
-      {live ? (
+      {live || recoverable ? (
         <form
           className="question-reply"
           onSubmit={(event) => {
@@ -176,9 +209,30 @@ export function QuestionCard({ item, onAnswer, busy }: QuestionCardProps) {
       */}
       {!settled && !item.answerable ? (
         <p className="question-notice">
-          Respond from Aside on your computer — this request can’t be
-          answered from mobile.
+          {recoverable ? (
+            <>
+              This session is waiting on Aside on your computer and can’t be
+              answered from here. Pick an option (or reply) to carry on in a
+              new session.
+            </>
+          ) : (
+            <>
+              Respond from Aside on your computer — this request can’t be
+              answered from mobile.
+            </>
+          )}
         </p>
+      ) : null}
+
+      {recoverable ? (
+        <button
+          type="button"
+          className="question-recover"
+          disabled={disabled}
+          onClick={() => void send(item.questions[0]?.header || '', '')}
+        >
+          {sending ? <Spinner size={13} /> : 'Continue in a new session'}
+        </button>
       ) : null}
     </div>
   );

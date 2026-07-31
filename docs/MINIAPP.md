@@ -184,10 +184,34 @@ Read these before deciding something is broken.
   where to answer it, and refuses to send into a suspended session rather
   than queueing a turn that would hang forever.
 
-  Sessions the Mini App starts are told **not** to use those tools, and to
-  emit a `[[QUESTION]]` block and end the turn instead. Those render as the
-  same card with working buttons, because answering one is just an ordinary
-  follow-up message.
+  Sessions started from your phone — by the Mini App **or** by texting the
+  bot — are told not to use those tools, and to emit a `[[QUESTION]]` block
+  and end the turn instead. Those render as the same card with working
+  buttons, because answering one is just an ordinary follow-up message. The
+  instruction rides on the first message and a one-line reminder rides on
+  every follow-up, so context compaction cannot quietly drop it.
+
+  When one turns up anyway, the card offers **Continue in a new session**:
+  the options become tappable again and seed a fresh session that starts
+  knowing what was asked, what you picked, and what the stuck session was
+  originally for. The stuck session stays as it is; nothing can unstick it.
+
+  **Residual risk.** A new session's `runtimeConfig` — including the
+  final-confirm flag — only binds on the *next* `aside exec` spawn, and
+  `aside exec` has no flag or environment variable that would bind it at
+  create time. So the very first turn of a brand new session still runs
+  under whatever your account default was, and the preamble is the only
+  cover for that one turn. [docs/NATIVE-QUESTIONS.md](NATIVE-QUESTIONS.md)
+  has the whole picture.
+- **The "Confirm before acting" switch is not Aside's `finalConfirm`.**
+  On a session driven from a phone it cannot be: the daemon's flag mandates
+  `request_action_confirmation`, which is precisely the tool that suspends
+  the session on a prompt your phone cannot answer. On these sessions the
+  switch adds a stronger line to the agent's instructions instead —
+  confirm with a `[[QUESTION]]` card before anything external or
+  irreversible — and the daemon flag is explicitly held off. On a session
+  you started on the desktop, where the sidepanel is there to answer, the
+  switch still writes the daemon's own flag.
 - **You can stop a turn, but you cannot steer one.** Stop kills the
   `aside exec` child the server owns (SIGTERM, then SIGKILL) and the
   transcript keeps whatever the agent got through. Mid-turn steering is not
@@ -235,7 +259,8 @@ miniapp/
     errors.ts       provider failures -> Aside's alert card
     todos.ts        write_todos replay
     settings.ts     defaults for new sessions
-    preamble.ts     the mobile-session instruction block
+    preamble.ts     the mobile-session instruction block + reminder
+    softconfirm.ts  per-session soft "confirm before acting"
   web/src/
     App.tsx         the shell: home, thread, settings
     components/     the sidepanel, recreated

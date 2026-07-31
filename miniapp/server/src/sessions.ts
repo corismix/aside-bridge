@@ -12,6 +12,7 @@ import { collapseWhitespace, stripMarkdown, truncate } from './transcript.js';
 import { fetchSessions, type FacadeCache, type FacadeSession } from './facade.js';
 import type { StateSessionRow } from './statedb.js';
 import { splitAttachmentHeader } from './uploads.js';
+import { isMobileSeededText, stripAgentDirectives } from './preamble.js';
 
 export interface SessionSummary {
   id: string;
@@ -87,11 +88,78 @@ export function sessionMsgFile(
  */
 const PERSONA_SEED_MARK = 'permanent telegram thread';
 
+/** How much of a transcript is read looking for its first user message. */
+const FIRST_MESSAGE_SCAN_BYTES = 64 * 1024;
+
+/**
+ * The first user message in a transcript, or "" when there is none.
+ *
+ * Reads a bounded prefix rather than the whole file: the first user row is
+ * the first or second line of every transcript, and the owner's largest are
+ * tens of megabytes.
+ */
+export function firstUserText(msgFile: string): string {
+  let buffer = '';
+  try {
+    const fd = fs.openSync(msgFile, 'r');
+    try {
+      const chunk = Buffer.alloc(FIRST_MESSAGE_SCAN_BYTES);
+      const read = fs.readSync(fd, chunk, 0, chunk.length, 0);
+      buffer = chunk.subarray(0, read).toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+  for (const raw of buffer.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    let msg: any;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      // A truncated final line is expected -- the read is bounded.
+      continue;
+    }
+    if (msg?.role !== 'user') continue;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      return String(
+        msg.content.find((p: any) => p?.type === 'text')?.text ?? '',
+      );
+    }
+  }
+  return '';
+}
+
+/**
+ * Whether this session was started from a phone -- by this app or by
+ * bridge.py.
+ *
+ * The discriminator is the seed text both surfaces write into the first
+ * prompt, so it needs no store, survives a cleared state directory, and
+ * cannot drift out of sync with the transcript it describes. See
+ * `isMobileSeededText`.
+ */
+export function isMobileSession(
+  sessionsDir: string,
+  sessionId: string,
+): boolean {
+  const msgFile = sessionMsgFile(sessionsDir, sessionId);
+  return msgFile ? isMobileSeededText(firstUserText(msgFile)) : false;
+}
+
 function titleFrom(text: string): string {
   // The attachment header is addressed to the agent, not the reader; a
   // title of "[user sent 2 files from their phone, saved to: /Users/…]" is
   // no title at all. Seen on a live run.
-  let snippet = splitAttachmentHeader(text).text;
+  //
+  // Same for the mobile preamble and the follow-up reminder. The preamble
+  // is prepended BEFORE the attachment header, so `splitAttachmentHeader`
+  // alone never saw the header at all and every Mini App session titled
+  // itself "[Aside Mini App session. You are running for a user on…".
+  let snippet = splitAttachmentHeader(stripAgentDirectives(text)).text;
   const noteAt = snippet.toLowerCase().indexOf('[bridge note');
   if (noteAt > 0) snippet = snippet.slice(0, noteAt);
   return truncate(collapseWhitespace(snippet), 64);

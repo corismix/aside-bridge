@@ -54,6 +54,11 @@ aside: Drafted a reply. Want to see it before I send?
   per subagent) is preserved in the tap-to-expand worklog too.
 - Send a photo and the agent opens and looks at it.
 - Messages sent mid-task queue politely and run next.
+- Decisions come back as buttons. An action with side effects asks for
+  Approve/Deny; a real choice comes as a question with one button per
+  option. The agent is told never to use Aside's native question tools,
+  which park a session on a prompt only your computer can answer — see
+  [docs/NATIVE-QUESTIONS.md](docs/NATIVE-QUESTIONS.md).
 
 ## Chat commands
 
@@ -64,7 +69,7 @@ aside: Drafted a reply. Want to see it before I send?
 | `/effort` | pick thinking effort for the next message (inline buttons: off, minimal, low, medium, high, xhigh, ultrabrowse -- same levels as the aside browser) |
 | `/effort <level>` | set it directly without the button menu |
 | `/usage` | Claude subscription usage + context-window fill + cost |
-| `/new` | fresh persona-primed session |
+| `/new` | fresh persona-primed session (full access, native confirm off) |
 | `/sessions` | list recent Aside sessions, tap a button to switch into one |
 
 ## The Mini App
@@ -91,7 +96,13 @@ Tap the **Aside** button next to the message box and you get:
 - **Task list** -- the todos the agent keeps for itself, collapsed above
   the composer and in the session panel.
 - **Questions and approvals** -- when the agent needs a decision it comes
-  through as a card with tappable options, not a wall of JSON.
+  through as a card with tappable options, not a wall of JSON. Sessions
+  started from your phone (in the Mini App *or* by texting the bot) are
+  instructed never to use Aside's native question tools, which suspend a
+  session on a prompt only your computer can answer; and if one turns up
+  anyway -- from a session started on the desktop, say -- the card offers
+  **Continue in a new session**, seeded with the question and the option
+  you tap. See [docs/NATIVE-QUESTIONS.md](docs/NATIVE-QUESTIONS.md).
 - **Stop** -- kill a running turn from the composer.
 - **Citations, files, attachments** -- `[1]` chips open their source;
   what the agent wrote and what you sent render in a side panel; photos
@@ -125,8 +136,10 @@ it is ever executed.
 **[docs/MINIAPP.md](docs/MINIAPP.md)** has the architecture, the full setup
 path, the config keys, and the limitations worth reading before deciding
 something is broken — chiefly: a question the agent raises with its native
-tools can only be answered from your computer, and you can stop a turn but
-not steer one.
+tools can only be answered from your computer (both surfaces now work hard
+to stop one ever being raised, and offer a way onward when one is —
+[docs/NATIVE-QUESTIONS.md](docs/NATIVE-QUESTIONS.md)), and you can stop a
+turn but not steer one.
 
 ## Managing it
 
@@ -204,6 +217,16 @@ an approval, a blocker) escapes the fold and pings for real.
 <details>
 <summary><b>Design limits</b> (read before filing issues)</summary>
 
+- **A session parked on a native question tool cannot be revived.** Not
+  from chat, not from the Mini App, not by any CLI or repl path — the
+  daemon waits for the desktop sidepanel and nothing else. Both surfaces
+  therefore work to stop one ever being raised: every session they start
+  carries an instruction against those tools, every follow-up carries a
+  one-line reminder, and the daemon's final-confirm flag (which *mandates*
+  the fatal tool) is explicitly turned off on sessions they create. The one
+  turn still exposed is a new session's first, because runtime config only
+  binds on the next spawn. [docs/NATIVE-QUESTIONS.md](docs/NATIVE-QUESTIONS.md)
+  has the detail.
 - **No mid-turn steering.** Messages sent while the agent is working queue
   and run as the next turn; they never redirect the current one. We tested
   every path to real steering: the `aside` CLI silently drops prompts sent

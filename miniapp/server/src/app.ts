@@ -31,8 +31,12 @@ import {
 } from './catalog.js';
 import { StateDb, isFullAccess, isSuspended } from './statedb.js';
 import { SettingsStore, defaultSettingsPath, resolveNewSessionModel } from './settings.js';
-import { withPreamble } from './preamble.js';
-import { answerMessage } from './questions.js';
+import { stripAgentDirectives, withPreamble, withReminder } from './preamble.js';
+import {
+  answerMessage,
+  pendingNativeQuestion,
+  recoveryPrompt,
+} from './questions.js';
 import { ThreadStore, buildParentView, fileStamp } from './threadstore.js';
 import { SubagentIndex, toChildSession } from './subagents.js';
 import {
@@ -70,12 +74,17 @@ import {
 } from './initdata.js';
 import { TokenError, bearerFrom, mintToken, verifyToken } from './auth.js';
 import { parseTranscript } from './transcript.js';
+import { buildThread } from './thread.js';
+import { readHistory } from './jsonl.js';
 import {
+  firstUserText,
+  isMobileSession,
   isValidSessionId,
   listSessionRows,
   resolveSessionDir,
   sessionMsgFile,
 } from './sessions.js';
+import { SoftConfirmStore, defaultSoftConfirmPath } from './softconfirm.js';
 import { TurnRunner } from './exec.js';
 import { WatcherRegistry } from './watcher.js';
 import { attachWebSocket } from './ws.js';
@@ -202,6 +211,13 @@ export async function buildServer(
   // settings.ts for why nothing here writes Aside's global settings.
   const settings = new SettingsStore(
     defaultSettingsPath(config.miniapp.stateDir),
+  );
+  // "Confirm before acting" for sessions driven from a phone. It is NOT
+  // the daemon's `finalConfirm`: that one mandates the native confirmation
+  // tool, which is the thing that bricks a mobile session. See
+  // softconfirm.ts.
+  const softConfirm = new SoftConfirmStore(
+    defaultSoftConfirmPath(config.miniapp.stateDir),
   );
   // Every facade call spawns the CLI binary, so reads go through a
   // short-TTL, in-flight-coalescing cache rather than straight to it.
@@ -410,6 +426,16 @@ export async function buildServer(
        */
       const status = state.status || session?.status || 'idle';
 
+      /**
+       * A session started from a phone: this app's own, or bridge.py's.
+       *
+       * The switch in the permission popover means the SOFT protocol on
+       * one of these, so what it shows has to come from the soft store --
+       * the daemon's own flag is held at false there on purpose. See the
+       * permission route.
+       */
+      const mobile = isMobileSession(config.sessionsDir, id);
+
       return {
         sessionId: id,
         title: session?.title || '',
@@ -436,7 +462,9 @@ export async function buildServer(
         queued: runner.queuedCount(id),
         permission: state.permission,
         permissionMode: state.permissionMode,
-        finalConfirm: state.finalConfirm,
+        finalConfirm: mobile ? softConfirm.has(id) : state.finalConfirm,
+        /** True when the confirm toggle means the soft protocol. */
+        softConfirm: mobile,
         model: state.model
           ? {
               provider: state.model.provider,
@@ -794,6 +822,19 @@ export async function buildServer(
         return reply.code(413).send({ error: 'text_too_long' });
       }
       const stored = settings.read();
+      /**
+       * "Confirm before acting", as the composer's switch now means it.
+       *
+       * It used to become `runtimeConfig.finalConfirm = true`, i.e. the
+       * daemon-level mandate to call `request_action_confirmation` -- the
+       * one tool that suspends a session on a prompt no phone can answer.
+       * A switch whose ON position guarantees a dead session is not a
+       * safety feature. It is a stronger line in the preamble instead.
+       */
+      const strictConfirm =
+        typeof body.finalConfirm === 'boolean'
+          ? body.finalConfirm
+          : Boolean(stored.defaultFinalConfirm);
       try {
         const { sessionId } = await runner.createSession({
           // The mobile-session preamble rides on the first prompt only.
@@ -802,6 +843,7 @@ export async function buildServer(
           // preamble.ts. It is stripped back out for display.
           text: withPreamble(
             promptWithAttachments(text, attachments.map((f) => f.path)),
+            { strictConfirm },
           ),
           // An explicit pick from the composer wins; the stored default is
           // only consulted when the client sent nothing.
@@ -810,6 +852,8 @@ export async function buildServer(
           ),
           effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
         });
+
+        softConfirm.set(sessionId, strictConfirm);
 
         // A permission choice made on the home composer applies to the
         // session the send just created. The create-then-update shape is
@@ -821,27 +865,40 @@ export async function buildServer(
         const mode = isPermissionMode(body.permissionMode)
           ? body.permissionMode
           : (stored.defaultPermissionMode ?? undefined);
-        const finalConfirm =
-          typeof body.finalConfirm === 'boolean'
-            ? body.finalConfirm
-            : (stored.defaultFinalConfirm ?? undefined);
-        if (mode !== undefined || finalConfirm !== undefined) {
-          void applyPermission(
-            {
-              facade,
-              readRuntimeConfig: async (sid) =>
-                (await stateDb.read(sid)).runtimeConfig,
-            },
-            sessionId,
-            { mode, finalConfirm },
-          )
-            .then(() => stateDb.invalidate(sessionId))
-            .catch((err) =>
-              request.log.error({ err }, 'new-session permission apply failed'),
-            );
-        }
+        /**
+         * Always OFF, on every session this app creates.
+         *
+         * Not "leave it alone": the account-level default is inherited by
+         * a new session, so an owner who has `finalConfirm` on for their
+         * desktop work gets it on a session started from their phone too
+         * -- and that is a SYSTEM instruction requiring the native
+         * confirmation tool, which outranks the preamble above and bricks
+         * the session the first time the agent touches anything external.
+         * Writing false explicitly is the only way to be sure.
+         *
+         * Residual risk, stated honestly: like every other runtimeConfig
+         * write, this binds on the NEXT `aside exec` spawn. The CLI offers
+         * no flag or environment variable to bind it at create time
+         * (checked against `aside exec --help`), so the very first turn of
+         * a new session still runs under the inherited value. The preamble
+         * is the only cover for that turn -- which is why it names the
+         * tools explicitly rather than just describing the protocol.
+         */
+        void applyPermission(
+          {
+            facade,
+            readRuntimeConfig: async (sid) =>
+              (await stateDb.read(sid)).runtimeConfig,
+          },
+          sessionId,
+          { mode, finalConfirm: false },
+        )
+          .then(() => stateDb.invalidate(sessionId))
+          .catch((err) =>
+            request.log.error({ err }, 'new-session permission apply failed'),
+          );
 
-        return { sessionId, accepted: true };
+        return { sessionId, accepted: true, softConfirm: strictConfirm };
       } catch (err) {
         request.log.error({ err }, 'new session failed');
         return reply
@@ -892,7 +949,21 @@ export async function buildServer(
       }
 
       const { queued } = runner.send(id, {
-        text: promptWithAttachments(text, attachments.map((f) => f.path)),
+        /**
+         * The one-line reminder rides on every follow-up.
+         *
+         * The preamble is on the first message only, and a long session
+         * gets compacted -- the instruction is exactly the kind of
+         * housekeeping a summariser drops, after which the next question
+         * is a native tool call and the session is unrecoverable. See
+         * `MOBILE_FOLLOWUP_REMINDER`. It is appended, so it composes with
+         * the attachment header (which is prepended) and cannot make the
+         * prompt dash-leading.
+         */
+        text: withReminder(
+          promptWithAttachments(text, attachments.map((f) => f.path)),
+          { strictConfirm: softConfirm.has(id) },
+        ),
         model: runner.resolveModel(body.model),
         effort: runner.resolveEffort(body.effort),
       });
@@ -961,11 +1032,100 @@ export async function buildServer(
       }
 
       const { queued } = runner.send(id, {
-        text: answerMessage(header, label),
+        // Same reminder as an ordinary send. Appended, so the answer text
+        // still leads the prompt and the `--` terminator still covers a
+        // label that begins with a dash.
+        text: withReminder(answerMessage(header, label), {
+          strictConfirm: softConfirm.has(id),
+        }),
         model: runner.resolveModel(body.model),
         effort: runner.resolveEffort(body.effort),
       });
       return { accepted: true, queued, busy: runner.isBusy(id) };
+    },
+  );
+
+  /**
+   * Carry on from a session that is stuck on a desktop-only question.
+   *
+   * There is no unsticking one. The daemon holds it suspended waiting for
+   * an answer over the sidepanel's authenticated channel, and nothing this
+   * server can send reaches that channel -- verified against the live CLI
+   * in every form. So the way forward is sideways: a NEW session, carrying
+   * the full mobile preamble, seeded with what was asked and what the user
+   * just tapped. See `recoveryPrompt`.
+   *
+   * The stuck session is left exactly as it is. It is still readable, and
+   * pretending otherwise would be the same dishonesty the read-only banner
+   * exists to avoid.
+   */
+  app.post(
+    '/api/sessions/:id/recover',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = (request.body || {}) as Record<string, unknown>;
+      const answer = String(body.answer ?? '').trim();
+      if (!isValidSessionId(id)) {
+        return reply.code(400).send({ error: 'bad_session_id' });
+      }
+      const msgFile = sessionMsgFile(config.sessionsDir, id);
+      if (!msgFile) {
+        return reply.code(404).send({ error: 'session_not_found' });
+      }
+
+      // The question comes from the server's own thread build rather than
+      // from the request body: the client could send anything, and what
+      // the new session is told the old one asked has to be true.
+      const question = pendingNativeQuestion(
+        buildThread(readHistory(msgFile), false) as any,
+      );
+      if (!question) {
+        return reply.code(409).send({ error: 'no_pending_question' });
+      }
+
+      const stored = settings.read();
+      const strictConfirm = softConfirm.has(id);
+      const seed = recoveryPrompt({
+        question,
+        answer,
+        firstMessage: stripAgentDirectives(firstUserText(msgFile)),
+      });
+
+      try {
+        const { sessionId } = await runner.createSession({
+          text: withPreamble(seed, { strictConfirm }),
+          model: runner.resolveModel(
+            resolveNewSessionModel(stored, body.model),
+          ),
+          effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
+        });
+        softConfirm.set(sessionId, strictConfirm);
+        // Same reasoning as the create route: never inherit the account's
+        // native final-confirm onto a session driven from a phone.
+        void applyPermission(
+          {
+            facade,
+            readRuntimeConfig: async (sid) =>
+              (await stateDb.read(sid)).runtimeConfig,
+          },
+          sessionId,
+          {
+            mode: stored.defaultPermissionMode ?? undefined,
+            finalConfirm: false,
+          },
+        )
+          .then(() => stateDb.invalidate(sessionId))
+          .catch((err) =>
+            request.log.error({ err }, 'recovery permission apply failed'),
+          );
+        return { sessionId, accepted: true, from: id };
+      } catch (err) {
+        request.log.error({ err }, 'recovery session failed');
+        return reply
+          .code(502)
+          .send({ error: 'session_create_failed', reason: (err as Error).message });
+      }
     },
   );
 
@@ -992,11 +1152,24 @@ export async function buildServer(
   );
 
   /**
-   * Change a session's permission mode and/or its final-confirm toggle.
+   * Change a session's permission mode and/or its confirm-before-acting
+   * toggle.
    *
    * Honest about scope: the daemon reads both when it spawns the next
    * `aside exec`, so a change takes effect from the next message rather
    * than reaching into a turn already running. The UI says the same.
+   *
+   * The confirm toggle forks on where the session came from. On one this
+   * app or bridge.py started -- a session being DRIVEN FROM A PHONE -- the
+   * native `finalConfirm` flag is never set true, because it is the
+   * daemon-level mandate to call `request_action_confirmation` and that
+   * tool can only be answered from the desktop sidepanel. Turning a safety
+   * switch on must not be the thing that kills the session. It writes the
+   * soft flag instead (see softconfirm.ts), which becomes a stronger line
+   * in the preamble and in every follow-up reminder.
+   *
+   * On a session started at the owner's desk the sidepanel IS there, so
+   * the switch keeps its original meaning and writes the daemon's flag.
    */
   app.post(
     '/api/sessions/:id/permission',
@@ -1023,6 +1196,10 @@ export async function buildServer(
         return reply.code(400).send({ error: 'bad_final_confirm' });
       }
 
+      const mobile = isMobileSession(config.sessionsDir, id);
+      const wanted = hasConfirm ? (body.finalConfirm as boolean) : undefined;
+      if (hasConfirm && mobile) softConfirm.set(id, Boolean(wanted));
+
       try {
         await applyPermission(
           {
@@ -1033,7 +1210,10 @@ export async function buildServer(
           id,
           {
             mode: hasMode ? (body.mode as any) : undefined,
-            finalConfirm: hasConfirm ? (body.finalConfirm as boolean) : undefined,
+            // On a mobile session the native flag is forced OFF rather
+            // than left alone: it may already be true, inherited from the
+            // account default, and this is the moment to clear it.
+            finalConfirm: hasConfirm ? (mobile ? false : wanted) : undefined,
           },
         );
       } catch (err) {
@@ -1051,7 +1231,14 @@ export async function buildServer(
         ok: true,
         permission: state.permission,
         permissionMode: state.permissionMode,
-        finalConfirm: state.finalConfirm,
+        /**
+         * What the switch shows. On a mobile session that is the soft flag
+         * -- reporting the daemon's (always false) value would flick the
+         * switch back off under the owner's thumb.
+         */
+        finalConfirm: mobile ? softConfirm.has(id) : state.finalConfirm,
+        /** True when the toggle means the soft protocol, not the daemon's. */
+        softConfirm: mobile,
         fullAccess: isFullAccess(state.permission),
         /** The change binds on the next spawn, not on the running turn. */
         appliesFrom: 'next-message',
