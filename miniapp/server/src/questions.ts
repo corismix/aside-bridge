@@ -309,3 +309,73 @@ export function answerMessage(header: string, label: string): string {
   const choice = String(label || '').trim();
   return heading ? `${heading}: ${choice}` : choice;
 }
+
+/** The newest pending question nobody can answer from here, or null. */
+export function pendingNativeQuestion(
+  items: Array<{ kind: string } & Partial<QuestionItem>>,
+): QuestionItem | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item.kind !== 'question') continue;
+    if (item.source !== 'tool') continue;
+    if (item.status !== 'pending' || item.answerable) continue;
+    return item as QuestionItem;
+  }
+  return null;
+}
+
+/** Keep the seed a seed: a preface, not a replayed transcript. */
+const SEED_FIELD_CHARS = 600;
+
+function clip(text: unknown, limit = SEED_FIELD_CHARS): string {
+  const raw = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return raw.length > limit ? `${raw.slice(0, limit - 1)}…` : raw;
+}
+
+/**
+ * The first message of a NEW session that continues a stuck one.
+ *
+ * A session suspended on a native question tool cannot be unstuck -- not
+ * from here, not by any request this server can make. Leaving the user on
+ * a read-only banner is honest and useless, so the way forward is a fresh
+ * session that starts already knowing what was asked and what the answer
+ * is. The stuck one is left exactly as it is.
+ *
+ * Deliberately a PREFACE and not a replay: carrying the whole transcript
+ * over would cost the new session most of its context window to reproduce
+ * a conversation the agent can just be told about. The question, the
+ * chosen answer, and the original ask are what make the next turn useful.
+ */
+export function recoveryPrompt(input: {
+  question?: QuestionItem | null;
+  /** What the user tapped, or typed in their own words. */
+  answer?: string;
+  /** The stuck session's own first message, when it is cheap to read. */
+  firstMessage?: string;
+}): string {
+  const lines: string[] = [
+    'Continuing from a session that got stuck on a prompt only Aside on ' +
+      'the desktop could answer. That session cannot be resumed, so here ' +
+      'is where it got to.',
+  ];
+
+  const opening = clip(input.firstMessage);
+  if (opening) lines.push('', `What I originally asked: ${opening}`);
+
+  const block = input.question?.questions?.[0];
+  if (block) {
+    const heading = clip(block.header, 200);
+    const asked = clip(block.question);
+    lines.push('', `Where it stopped: ${heading ? `${heading} -- ` : ''}${asked}`);
+    const options = (block.options || [])
+      .map((option) => clip(option.label, 120))
+      .filter(Boolean);
+    if (options.length) lines.push(`Options offered: ${options.join(' / ')}`);
+  }
+
+  const answer = clip(input.answer);
+  if (answer) lines.push('', `My answer: ${answer}`);
+
+  lines.push('', 'Pick up from there.');
+  return lines.join('\n');
+}

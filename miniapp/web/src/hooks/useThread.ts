@@ -52,6 +52,8 @@ export interface ThreadState {
   permission: string | null;
   permissionMode: string | null;
   finalConfirm: boolean | null;
+  /** True when the confirm toggle means the soft protocol, not the daemon's. */
+  softConfirm: boolean;
   model: ThreadModel | null;
   /** Token counters for the context ring and the streaming footer. */
   stats: ThreadStats;
@@ -328,6 +330,7 @@ export function useThread(sessionId: string): ThreadState {
     permission: meta?.permission ?? null,
     permissionMode: meta?.permissionMode ?? null,
     finalConfirm: meta?.finalConfirm ?? null,
+    softConfirm: meta?.softConfirm ?? false,
     model: meta?.model ?? null,
     stats,
     contextWindow: meta?.contextWindow ?? 0,

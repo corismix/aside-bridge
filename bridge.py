@@ -26,6 +26,97 @@ MEDIA_DIR = os.path.join(BRIDGE_DIR, "media")
 
 TG_LIMIT = 4000  # telegram hard cap is 4096
 
+# --- the soft question protocol ---------------------------------------
+# A session that calls the native ask_user_question or
+# request_action_confirmation tool suspends until the answer arrives over
+# the daemon's own authenticated channel, and that channel is the Aside
+# desktop sidepanel and nothing else. From a phone there is no way to
+# answer one: a follow-up `aside exec --session <id>` blocks forever,
+# stdin to the driver is ignored, and the `aside.sessions` repl facade
+# has no answer/respond method. The session is then unrecoverable -- a
+# real user lost one exactly this way.
+#
+# So both style presets tell the agent not to call those tools, and to
+# post a [[QUESTION]] block and END THE TURN instead. The bridge turns
+# that into an inline keyboard; tapping an option is an ordinary
+# follow-up message, which works precisely because the turn ended.
+#
+# The JSON shape is the same one miniapp/server/src/preamble.ts
+# documents and miniapp/server/src/questions.ts parses, so a session
+# started by texting the bot renders identically in the Mini App.
+# [[APPROVAL]] is unchanged and still the right block for a plain
+# yes/no on an action.
+QUESTION_FORMAT = (
+    '[[QUESTION]]\n'
+    '{"questions":[{"header":"Short heading",'
+    '"question":"What you need to know","options":'
+    '[{"label":"Option A","description":"What this means"},'
+    '{"label":"Option B","description":"What this means"}]}]}\n'
+    '[[/QUESTION]]'
+)
+
+
+def _literal_braces(text):
+    """Protect JSON braces from the persona's own str.format pass.
+
+    The persona template carries {owner} and is run through .format, which
+    reads every brace in the example JSON as a field name and dies with
+    KeyError: '"questions"'. Doubling them makes .format emit them
+    verbatim; nothing else in this file formats these strings.
+    """
+    return text.replace("{", "{{").replace("}", "}}")
+
+
+QUESTION_PROTOCOL_CASUAL = (
+    "one more protocol, and it's a hard rule: never call "
+    "ask_user_question and never call request_action_confirmation in "
+    "this session. both suspend the session waiting on a desktop-only "
+    "prompt that never reaches my phone, and the thread dies there with "
+    "no way back. when you need a decision or a choice from me, post it "
+    "as your entire final message in exactly this format:\n"
+    + _literal_braces(QUESTION_FORMAT) +
+    "\nthat block holds only json. i'll tap an option on my phone and it "
+    "arrives as your next message -- so end the turn right after posting "
+    "it, don't keep working. use [[APPROVAL]] for a plain yes/no on an "
+    "action and [[QUESTION]] when there are real choices. "
+)
+
+QUESTION_PROTOCOL_FORMAL = (
+    "One more protocol, and it is a hard rule: never call "
+    "ask_user_question and never call request_action_confirmation in "
+    "this session. Both suspend the session waiting on a desktop-only "
+    "prompt that never reaches my phone, and the thread cannot be "
+    "recovered from there. When you need a decision or a choice from "
+    "me, post it as your entire final message in exactly this format:\n"
+    + _literal_braces(QUESTION_FORMAT) +
+    "\nThat block must contain only JSON. I will tap an option on my "
+    "phone and it will arrive as your next message, so end the turn "
+    "right after posting it rather than continuing to work. Use "
+    "[[APPROVAL]] for a plain yes/no on an action and [[QUESTION]] when "
+    "there are real choices. "
+)
+
+# One line, appended to EVERY message sent into the session.
+#
+# The persona above rides on the session's first prompt only, and that is
+# not enough. A long thread gets compacted and the instruction is exactly
+# the kind of housekeeping a summariser drops; low-effort and non-Claude
+# models drift back to the system prompt's default of calling
+# ask_user_question sooner still. Either way the next question suspends
+# the session and there is no way back, so the insurance is worth its few
+# dozen tokens a turn.
+#
+# Kept byte-identical to MOBILE_FOLLOWUP_REMINDER in
+# miniapp/server/src/preamble.ts: the Mini App strips exactly this string
+# out of the user's own bubbles and session titles, and a session started
+# by texting the bot is read there too. It is separate from STYLE_TAG
+# because that one is overridable from config.json, and this must not be.
+QUESTION_REMINDER = (
+    "\n\n[Reminder: mobile session -- never call ask_user_question or "
+    "request_action_confirmation; ask with a [[QUESTION]] {json} "
+    "[[/QUESTION]] block and end the turn.]"
+)
+
 # style presets -- pick with config.json's "style" key ("formal" default,
 # or "casual"). either can be fully overridden with explicit
 # "persona_prompt" / "style_tag" keys regardless of preset.
@@ -58,8 +149,9 @@ STYLE_PRESETS = {
             "in exactly this format:\n[[APPROVAL]]\nAction: <one "
             "line>\nDetails: <specifics>\n[[/APPROVAL]]\nthen wait -- "
             "i'll tap approve or deny on my phone and you'll get my "
-            "decision as the next message before proceeding. sound "
-            "good? one line ack."
+            "decision as the next message before proceeding. "
+            + QUESTION_PROTOCOL_CASUAL +
+            "sound good? one line ack."
         ),
         "tag": (
             "\n\n[bridge note: telegram thread. texting style, plain "
@@ -67,7 +159,10 @@ STYLE_PRESETS = {
             "irreversible/external action, don't act yet: post an "
             "approval request as your final message using exactly "
             "[[APPROVAL]] / Action: / Details: / [[/APPROVAL]], then "
-            "wait for my approve or deny]"
+            "wait for my approve or deny. never call ask_user_question "
+            "or request_action_confirmation -- they hang the session on "
+            "a prompt my phone can't answer; ask with a [[QUESTION]] "
+            "{json} [[/QUESTION]] block and end the turn]"
         ),
     },
     "formal": {
@@ -99,8 +194,9 @@ STYLE_PRESETS = {
             "format:\n[[APPROVAL]]\nAction: <one line>\nDetails: "
             "<specifics>\n[[/APPROVAL]]\nThen wait -- I will tap "
             "Approve or Deny on my phone and you will get my decision "
-            "as the next message before proceeding. Understood? "
-            "Please confirm briefly."
+            "as the next message before proceeding. "
+            + QUESTION_PROTOCOL_FORMAL +
+            "Understood? Please confirm briefly."
         ),
         "tag": (
             "\n\n[bridge note: Telegram thread. Professional tone, "
@@ -108,7 +204,11 @@ STYLE_PRESETS = {
             "lines. For any irreversible/external action, do not act "
             "yet: post an approval request as your final message using "
             "exactly [[APPROVAL]] / Action: / Details: / [[/APPROVAL]], "
-            "then wait for my Approve or Deny.]"
+            "then wait for my Approve or Deny. Never call "
+            "ask_user_question or request_action_confirmation -- they "
+            "hang the session on a prompt my phone cannot answer; ask "
+            "with a [[QUESTION]] {json} [[/QUESTION]] block and end the "
+            "turn.]"
         ),
     },
 }
@@ -198,6 +298,9 @@ state.setdefault("effort_next", None)
 # pending approval-gate request awaiting an Approve/Deny tap, or None.
 # shape: {token, action, details, session_id, message_id, ts}
 state.setdefault("approval", None)
+# pending [[QUESTION]] awaiting an option tap, or None.
+# shape: {token, header, question, options, session_id, message_id, ts}
+state.setdefault("question", None)
 
 # every normal turn runs at this thinking effort regardless of model.
 # /effort lets you pick any of these; the choice is sticky and applies
@@ -598,6 +701,30 @@ def handle_usage():
 SESSIONS_LIST_LIMIT = int(CONFIG.get("sessions_list_limit", 8))
 
 
+# The Mini App prepends its own instruction block to the first prompt of
+# every session it starts, and appends the same one-line reminder this
+# bridge does to every follow-up. Both belong to the agent, not to the
+# reader, so /sessions strips them the way it already strips the bridge
+# note -- otherwise every Mini App session previews as "[Aside Mini App
+# session. You are running for a user on their…". The Mini App side does
+# the mirror of this; see stripAgentDirectives in server/src/preamble.ts.
+MINIAPP_PREAMBLE_RE = re.compile(
+    r"^\[Aside Mini App session\..*?do not keep working while you "
+    r"wait\.\]\s*", re.S)
+REMINDER_RE = re.compile(
+    r"\s*\[Reminder: mobile session.*?end the turn\..*?\]\s*$", re.S)
+
+
+def strip_agent_directives(text):
+    """Remove everything a transport added to a prompt for the agent."""
+    out = MINIAPP_PREAMBLE_RE.sub("", text or "")
+    out = REMINDER_RE.sub("", out)
+    idx = out.lower().find("[bridge note")
+    if idx > 0:
+        out = out[:idx]
+    return out.strip()
+
+
 def _session_preview(msg_file):
     """(first-user-text snippet, turn count) from a transcript."""
     snippet, turns, fallback = "", 0, ""
@@ -633,10 +760,7 @@ def _session_preview(msg_file):
                 snippet = text
     except OSError:
         pass
-    snippet = snippet or fallback
-    idx = snippet.lower().find("[bridge note")
-    if idx > 0:
-        snippet = snippet[:idx]
+    snippet = strip_agent_directives(snippet or fallback)
     snippet = " ".join(snippet.split())
     if len(snippet) > 64:
         snippet = snippet[:64] + "\u2026"
@@ -804,6 +928,9 @@ def handle_callback(cq):
     if data.startswith("apv:"):
         _handle_approval_tap(data, mid)
         return
+    if data.startswith("qst:"):
+        _handle_question_tap(data, mid)
+        return
     if not (data.startswith("sess:") or data.startswith("eff:")):
         return
     # retire the picker so buttons can't be double-tapped
@@ -899,6 +1026,48 @@ def handle_command(text):
         send_text("commands: /status /usage /model /effort /new /sessions")
 
 
+def new_session_settings_expression(sid):
+    """The repl call that makes a fresh session safe to drive by text.
+
+    Two settings, one call so a two-field change cannot half-apply:
+
+    - permissionMode: new CLI sessions default to guard mode, and this
+      thread is the owner's own agent.
+    - runtimeConfig.finalConfirm: forced OFF. It is inherited from the
+      account default, and when it is on the daemon injects a
+      SYSTEM-level instruction REQUIRING request_action_confirmation
+      before external actions. That outranks the persona above and
+      guarantees a session suspended on a desktop-only prompt the first
+      time the agent touches anything outside the machine. Writing false
+      explicitly is the only way to be sure.
+
+    Honest about scope: like every runtimeConfig write it binds on the
+    NEXT `aside exec` spawn, and `aside exec` has no flag or environment
+    variable that would bind it at create time (checked against
+    `aside exec --help`). So the session's FIRST turn still runs under
+    the inherited value, and the persona's explicit "never call these
+    tools" is the only cover for that one turn.
+
+    runtimeConfig deep-merges -- verified on a throwaway session -- so
+    sending finalConfirm alone leaves proactiveMode, workingDirs and the
+    rest of the row untouched.
+    """
+    return (
+        "aside.sessions.update(%s, { permissionMode: 'full-access', "
+        "runtimeConfig: { finalConfirm: false } })" % json.dumps(sid)
+    )
+
+
+def _prepare_new_session(sid):
+    try:
+        subprocess.run(
+            [ASIDE_CLI, "repl", new_session_settings_expression(sid)],
+            capture_output=True, timeout=30)
+        log("granted full-access and cleared finalConfirm on %s" % sid)
+    except Exception as e:  # noqa: BLE001
+        log("new-session settings failed: %s" % e)
+
+
 def heavy_new():
     send_text("spinning up a fresh session...")
     code, out, err = run_aside(
@@ -920,16 +1089,7 @@ def heavy_new():
             return
         state["session_id"] = sid
         save_json(STATE_PATH, state)
-        # new CLI sessions default to guard mode; grant full access
-        try:
-            subprocess.run(
-                [ASIDE_CLI, "repl",
-                 "aside.sessions.update('%s', "
-                 "{ permissionMode: 'full-access' })" % sid],
-                capture_output=True, timeout=30)
-            log("granted full-access to %s" % sid)
-        except Exception as e:  # noqa: BLE001
-            log("full-access grant failed: %s" % e)
+        _prepare_new_session(sid)
         send_text("fresh session ready (%s)" % sid)
 
 
@@ -980,6 +1140,14 @@ YOU_RE = re.compile(r"\byou\b|\byour\b|\byours\b", re.I)
 SUBAGENT_RESULT_RE = re.compile(
     r'<subagent_result task_id="([^"]+)">(.*?)</subagent_result>',
     re.S)
+
+
+# A whole [[APPROVAL]] or [[QUESTION]] block, for removing one from text
+# that is about to be shown. The gates parse the transcript themselves;
+# this is purely about what reaches the chat.
+MARKER_BLOCK_RE = re.compile(
+    r"\[\[(?:QUESTION|APPROVAL)\]\].*?\[\[/(?:QUESTION|APPROVAL)\]\]",
+    re.S | re.I)
 
 
 def is_urgent(text):
@@ -1051,6 +1219,163 @@ def present_approval(ap):
     save_json(STATE_PATH, state)
     log("APPROVAL requested token=%s action=%s"
         % (token, ap["action"][:60]))
+
+
+# --- question gate ---------------------------------------------------
+# The other half of the same idea. [[APPROVAL]] answers a yes/no; a
+# [[QUESTION]] block carries a real multiple-choice question, in the JSON
+# shape miniapp/server/src/questions.ts already parses, so both transports
+# read the same protocol. The agent is told to post one INSTEAD of calling
+# ask_user_question -- see QUESTION_PROTOCOL_* above for why that tool is
+# fatal here.
+#
+# Options become inline buttons through the same machinery the approval
+# gate uses; the tapped label is injected as the next turn's message,
+# which works because the agent ended its turn to ask. Telegram caps
+# callback_data at 64 bytes, so a button carries the option's INDEX and
+# the labels live in state.
+QUESTION_RE = re.compile(
+    r"\[\[QUESTION\]\](.*?)\[\[/QUESTION\]\]", re.S | re.I)
+
+# Telegram will render more, but a wall of buttons is not a question.
+MAX_QUESTION_OPTIONS = 8
+
+
+def parse_question(text):
+    """Extract a [[QUESTION]] block from a turn's assistant text.
+
+    Returns {header, question, options, rest} or None. `rest` is the
+    text with the block removed -- what the agent said around it. The
+    turn stream strips the markers on its own way to the chat (see
+    `MARKER_BLOCK_RE`), so `rest` is informational here rather than the
+    thing that gets sent; it is what a caller would show if it ever
+    presented a question without a live TurnStream.
+    """
+    raw = text or ""
+    m = QUESTION_RE.search(raw)
+    if not m:
+        return None
+    try:
+        payload = json.loads(m.group(1).strip())
+    except ValueError:
+        # A malformed body stays plain text: showing an empty card would
+        # lose whatever the agent actually said.
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    block = payload
+    blocks = payload.get("questions")
+    if isinstance(blocks, list) and blocks:
+        first = blocks[0]
+        if not isinstance(first, dict):
+            return None
+        block = first
+
+    question = str(block.get("question") or "").strip()
+    if not question:
+        return None
+    options = []
+    for opt in (block.get("options") or [])[:MAX_QUESTION_OPTIONS]:
+        if not isinstance(opt, dict):
+            continue
+        label = str(opt.get("label") or "").strip()
+        if not label:
+            continue
+        options.append({
+            "label": label,
+            "description": str(opt.get("description") or "").strip(),
+        })
+    rest = (raw[:m.start()] + raw[m.end():]).strip()
+    return {
+        "header": str(block.get("header") or "").strip() or "Question",
+        "question": question,
+        "options": options,
+        "rest": rest,
+    }
+
+
+def present_question(q):
+    """Send the question as inline buttons and record pending state."""
+    token = os.urandom(6).hex()
+    lines = ["❓ " + q["header"], "", q["question"]]
+    keyboard = []
+    for i, opt in enumerate(q["options"]):
+        if opt["description"]:
+            lines.append("")
+            lines.append("%s -- %s" % (opt["label"], opt["description"]))
+        keyboard.append([{
+            "text": opt["label"][:64],
+            "callback_data": "qst:%s:%d" % (token, i),
+        }])
+    if q["options"]:
+        lines += ["", "Tap an option, or just reply in your own words."]
+    else:
+        # No options is a plain question. Nothing to button; the reply is
+        # an ordinary message, which is exactly what the protocol wants.
+        lines += ["", "Reply and I'll pick it up."]
+
+    mid = None
+    params = {"chat_id": CHAT_ID, "text": "\n".join(lines)[:TG_LIMIT]}
+    if keyboard:
+        params["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
+    try:
+        r = tg("sendMessage", params, timeout=30)
+        mid = (r.get("result") or {}).get("message_id")
+    except Exception as e:  # noqa: BLE001
+        # Falling back to numbered text rather than dropping the question:
+        # a reply is an ordinary message either way.
+        log("question send failed: %s" % e)
+        numbered = ["%d. %s" % (i + 1, o["label"])
+                    for i, o in enumerate(q["options"])]
+        send_text("\n".join([q["header"], "", q["question"], ""] + numbered))
+
+    state["question"] = {
+        "token": token, "header": q["header"], "question": q["question"],
+        "options": [o["label"] for o in q["options"]],
+        "session_id": state["session_id"], "message_id": mid,
+        "ts": time.time(),
+    }
+    save_json(STATE_PATH, state)
+    log("QUESTION asked token=%s header=%s options=%d"
+        % (token, q["header"][:60], len(q["options"])))
+
+
+def _handle_question_tap(data, mid):
+    parts = (data.split(":", 2) + ["", ""])[:3]
+    token, index = parts[1], parts[2]
+    pending = state.get("question")
+    if not pending or pending.get("token") != token:
+        if mid:
+            tg("editMessageReplyMarkup",
+               {"chat_id": CHAT_ID, "message_id": mid,
+                "reply_markup": json.dumps({"inline_keyboard": []})},
+               timeout=15)
+        send_text("that question isn't open anymore")
+        return
+    options = pending.get("options") or []
+    try:
+        label = options[int(index)]
+    except (ValueError, IndexError):
+        send_text("couldn't tell which option that was, just reply instead")
+        return
+    header = pending.get("header") or ""
+    if mid:
+        tg("editMessageText",
+           {"chat_id": CHAT_ID, "message_id": mid,
+            "text": ("✅ " + header + " -- " + label)[:TG_LIMIT]},
+           timeout=15)
+    state["question"] = None
+    save_json(STATE_PATH, state)
+    log("QUESTION answered token=%s choice=%s" % (token, label[:60]))
+    # Deliberately NOT a bulleted "- <header>: <label>": a leading dash
+    # makes the CLI's argument parser read the whole prompt as a flag.
+    # Same reasoning as answerMessage() in the Mini App.
+    TASKS.put(("msg", "%s: %s" % (header, label) if header else label))
+    if WORKER_BUSY.is_set() and not QUEUED_NOTE_SENT.is_set():
+        QUEUED_NOTE_SENT.set()
+        tg_send_status("\U0001f4e5 got it -- queued for right after "
+                       "the current task")
 
 
 def _fmt_elapsed(secs):
@@ -1252,6 +1577,15 @@ class TurnStream:
         self.flush()
 
     def on_block(self, text):
+        # Protocol blocks are the bridge's business, not the reader's:
+        # the gates below turn them into Approve/Deny or option buttons
+        # after the turn ends. Left in, a question whose text contains a
+        # "?" trips the urgent path and lands in the chat as a raw wall
+        # of JSON a moment before the buttons arrive.
+        text = MARKER_BLOCK_RE.sub("", text).strip()
+        if not text:
+            # Nothing but the block. There is nothing to show yet.
+            return
         self.last_block = text
         if is_urgent(text):
             self._enter_multi()
@@ -1324,14 +1658,29 @@ class TurnStream:
             tg_delete(self.status_id)
         return True
 
-    def on_native_confirmation(self, args):
-        """The agent called the browser confirmation tool despite the
-        approval-gate protocol. We can't resolve that from Telegram
-        (daemon auth is keychain-gated), so notify once and point at
-        the app / the [[APPROVAL]] path."""
+    def on_native_confirmation(self, args, tool="request_action_confirmation"):
+        """The agent called a native question tool despite the
+        approval/question protocol. Neither can be resolved from
+        Telegram -- the daemon waits for an answer over the desktop
+        sidepanel's authenticated channel and the session sits
+        suspended until it gets one -- so notify once and point at the
+        app and at the [[APPROVAL]] / [[QUESTION]] path."""
         if self.native_confirm_notified:
             return
         self.native_confirm_notified = True
+        if tool == "ask_user_question":
+            asked = ""
+            for q in (args.get("questions") or [])[:1]:
+                if isinstance(q, dict):
+                    asked = str(q.get("question") or q.get("header") or "")
+            send_text(
+                "\u26a0\ufe0f i asked a question through the native tool "
+                "(\"%s\") which only aside on your computer can answer, so "
+                "this session is parked until you do. answer it there, or "
+                "send /new here to start fresh -- and next time i'll use "
+                "the telegram buttons instead."
+                % (asked[:120] or "question"))
+            return
         title = (args.get("title") or "Confirmation").strip()
         send_text(
             "\u26a0\ufe0f i triggered a browser-level confirmation "
@@ -1397,8 +1746,9 @@ def stream_new(msg_file, pos, turn):
                         turn.on_subagent_spawn(part.get("id"), args)
                     elif name == "subagent_wait":
                         turn.on_subagent_wait(args.get("task_ids"))
-                    elif name == "request_action_confirmation":
-                        turn.on_native_confirmation(args)
+                    elif name in ("request_action_confirmation",
+                                  "ask_user_question"):
+                        turn.on_native_confirmation(args, name)
                     else:
                         label = args.get("title") or name
                         turn.on_tool(label)
@@ -1438,7 +1788,7 @@ def handle_message(text):
 
     def runner():
         result["r"] = run_aside(
-            text + STYLE_TAG,
+            text + STYLE_TAG + QUESTION_REMINDER,
             session_id=state["session_id"],
             model=state["model"],
             effort=effort,
@@ -1476,12 +1826,23 @@ def handle_message(text):
     # worse the more bubbles a reply has (i.e. the longer/more
     # detailed the reply, which tends to grow with conversation
     # length).
-    # detect an approval-gate request in this turn's assistant output
-    # so its final block becomes buttons instead of a plain reply.
+    # detect an approval-gate request or a [[QUESTION]] block in this
+    # turn's assistant output so its final block becomes buttons instead
+    # of a plain reply. Approval wins when both are present: it is the
+    # narrower ask and the older protocol.
     approval = None
+    question = None
     if msg_file:
-        approval = parse_approval(
-            read_assistant_since(msg_file, orig_offset))
+        assistant = read_assistant_since(msg_file, orig_offset)
+        approval = parse_approval(assistant)
+        if not approval:
+            question = parse_question(assistant)
+    # Only the approval gate suppresses the final block: it restates the
+    # action inside its own buttoned message, so sending it twice would
+    # be noise. A question does not restate anything, and its block was
+    # already stripped out of the displayed text by `on_block` -- so the
+    # agent's actual prose still lands as an ordinary reply, and the
+    # buttons follow it.
     if approval:
         turn.suppress_final = True
 
@@ -1491,6 +1852,10 @@ def handle_message(text):
 
     if approval:
         present_approval(approval)
+    elif question:
+        # `turn.finish()` above has already sent whatever the agent said
+        # around the block, with the markers removed.
+        present_question(question)
     elif not sent_any:
         if out.strip():
             send_bubbles(out.strip())
