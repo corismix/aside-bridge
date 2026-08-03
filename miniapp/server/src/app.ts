@@ -86,6 +86,7 @@ import {
   resolveSessionDir,
   sessionMsgFile,
   titleFromTranscript,
+  waitForTranscript,
 } from './sessions.js';
 import { SoftConfirmStore, defaultSoftConfirmPath } from './softconfirm.js';
 import { TurnRunner } from './exec.js';
@@ -436,8 +437,16 @@ export async function buildServer(
         return reply.code(400).send({ error: 'bad_session_id' });
       }
 
-      const msgFile = sessionMsgFile(config.sessionsDir, id);
-      if (!msgFile || !fs.existsSync(msgFile)) {
+      /*
+       * Wait for a transcript that is still being written rather than
+       * 404ing on it. See `waitForTranscript`: this is the same rule the
+       * WebSocket already used, and its absence here is what made a brand
+       * new chat flash "404: session_not_found" before it settled.
+       */
+      const msgFile = await waitForTranscript(config.sessionsDir, id, (sid) =>
+        runner.isBusy(sid),
+      );
+      if (!msgFile) {
         return reply.code(404).send({ error: 'session_not_found' });
       }
 

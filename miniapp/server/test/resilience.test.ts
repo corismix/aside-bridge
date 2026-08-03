@@ -23,6 +23,7 @@ import {
   desktopRoot,
 } from '../src/desktop.js';
 import { buildCatalog } from '../src/catalog.js';
+import { waitForTranscript } from '../src/sessions.js';
 
 const temps: string[] = [];
 
@@ -305,5 +306,74 @@ describe('buildCatalog with desktop providers', () => {
   it('ignores malformed ensure refs', () => {
     const catalog = buildCatalog(['claude-code'], {}, desktop, [null, undefined]);
     expect(catalog.length).toBeGreaterThan(0);
+  });
+});
+
+describe('waitForTranscript', () => {
+  function dir() {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'miniapp-wait-'));
+    temps.push(d);
+    fs.mkdirSync(path.join(d, '2026-08-02_abcdefghijklmnop'), { recursive: true });
+    return d;
+  }
+  const ID = 'abcdefghijklmnop';
+  const msgPath = (d: string) =>
+    path.join(d, '2026-08-02_abcdefghijklmnop', 'messages.jsonl');
+
+  it('returns at once when the transcript already exists', async () => {
+    const d = dir();
+    fs.writeFileSync(msgPath(d), '');
+    const found = await waitForTranscript(d, ID, () => false);
+    expect(found).toBe(msgPath(d));
+  });
+
+  it('404s immediately for an unknown id nothing is running', async () => {
+    // A typo or a stale link must not hang the client for 30 seconds.
+    const d = dir();
+    const started = Date.now();
+    expect(await waitForTranscript(d, ID, () => false)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(100);
+  });
+
+  it('waits for a transcript that is still being written', async () => {
+    // The actual bug: the id exists, the turn is running, the file is a
+    // few hundred ms behind. The old code answered 404 in that window.
+    const d = dir();
+    let ticks = 0;
+    const found = await waitForTranscript(d, ID, () => true, {
+      pollMs: 1,
+      sleep: async () => {
+        if (++ticks === 3) fs.writeFileSync(msgPath(d), '');
+      },
+    });
+    expect(found).toBe(msgPath(d));
+    expect(ticks).toBe(3);
+  });
+
+  it('gives up when the turn ends without ever writing one', async () => {
+    const d = dir();
+    let busy = true;
+    let ticks = 0;
+    const found = await waitForTranscript(d, ID, () => busy, {
+      pollMs: 1,
+      sleep: async () => {
+        if (++ticks === 2) busy = false;
+      },
+    });
+    expect(found).toBeNull();
+  });
+
+  it('gives up at the deadline', async () => {
+    const d = dir();
+    let clock = 0;
+    const found = await waitForTranscript(d, ID, () => true, {
+      pollMs: 1,
+      waitMs: 10,
+      now: () => clock,
+      sleep: async () => {
+        clock += 4;
+      },
+    });
+    expect(found).toBeNull();
   });
 });

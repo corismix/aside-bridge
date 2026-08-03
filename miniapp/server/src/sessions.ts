@@ -472,3 +472,64 @@ export async function listSessionRows(
   }));
   return { rows, source: 'filesystem' };
 }
+
+/**
+ * How long a just-created session may take to put a transcript on disk,
+ * and how often to look. Shared with the WebSocket subscribe path so both
+ * transports agree on what "not there yet" means.
+ */
+export const NEW_SESSION_WAIT_MS = 30_000;
+export const NEW_SESSION_POLL_MS = 250;
+
+/**
+ * Resolve a session's transcript, waiting if it is still being created.
+ *
+ * `aside exec` hands back a session id as soon as its DIRECTORY appears;
+ * messages.jsonl lands a moment later. The WebSocket already treated that
+ * gap as a wait, but the REST `/thread` route answered 404 the instant the
+ * file was missing -- so opening a brand new chat flashed
+ * "404: session_not_found" for the fraction of a second before the file
+ * appeared. Observed live: `POST /api/sessions/new` 200, then `/thread`
+ * 404 two milliseconds later, then 200.
+ *
+ * Waiting is only justified while this server is itself mid-turn on that
+ * id, which is exactly the just-created case -- `createSession` marks the
+ * queue running before it returns. Any other unknown id still answers
+ * immediately, so a typo or a stale link never hangs the client.
+ */
+export async function waitForTranscript(
+  sessionsDir: string,
+  id: string,
+  isBusy: (id: string) => boolean,
+  options: {
+    waitMs?: number;
+    pollMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<string | null> {
+  const exists = () => {
+    const file = sessionMsgFile(sessionsDir, id);
+    return file && fs.existsSync(file) ? file : null;
+  };
+
+  const immediate = exists();
+  if (immediate) return immediate;
+  if (!isBusy(id)) return null;
+
+  const now = options.now ?? Date.now;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + (options.waitMs ?? NEW_SESSION_WAIT_MS);
+  const pollMs = options.pollMs ?? NEW_SESSION_POLL_MS;
+
+  for (;;) {
+    await sleep(pollMs);
+    const found = exists();
+    if (found) return found;
+    // A turn that ended without ever writing a transcript failed outright;
+    // there is nothing left to wait for.
+    if (now() > deadline || !isBusy(id)) return null;
+  }
+}

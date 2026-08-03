@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RestCue, RestHero, greetingFor } from '../src/components/Rest';
 import { pillModelLabel } from '../src/utils/pills';
+import { threadErrorText } from '../src/utils/format';
 
 function at(hour: number): Date {
   const d = new Date(2026, 7, 2, hour, 30, 0);
@@ -91,5 +92,30 @@ describe('pillModelLabel', () => {
 
   it('only strips the LAST parenthetical', () => {
     expect(pillModelLabel('Foo (v2) Bar (Free)')).toBe('Foo (v2) Bar');
+  });
+});
+
+describe('threadErrorText', () => {
+  it('never shows a status code or a snake_case reason', () => {
+    // "404: session_not_found" was reaching the screen verbatim.
+    const out = threadErrorText(new Error('404: session_not_found'));
+    expect(out).not.toMatch(/\d{3}:/);
+    expect(out).not.toContain('_');
+    expect(out).toBe('This chat is no longer on your Mac.');
+  });
+
+  it('explains the cases a user can act on', () => {
+    expect(threadErrorText(new Error('413: transcript_too_large'))).toContain(
+      'too long',
+    );
+    expect(threadErrorText(new Error('401: expired'))).toContain('bot menu');
+    expect(threadErrorText(new TypeError('Failed to fetch'))).toContain(
+      'awake and online',
+    );
+  });
+
+  it('falls back to something readable for anything unknown', () => {
+    expect(threadErrorText(new Error('500: kaboom'))).toBe('kaboom');
+    expect(threadErrorText(null)).toBe('Something went wrong loading this chat.');
   });
 });
