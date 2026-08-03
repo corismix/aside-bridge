@@ -8,7 +8,7 @@ Your full Aside agent -- tools, memory, everything -- living in a Telegram
 chat. Ask it things, send it photos, give it multi-step tasks, watch live
 progress fold into a tidy collapsible worklog when it's done.
 
-## Install (2 minutes)
+## Install (one command)
 
 Open Terminal and paste:
 
@@ -21,15 +21,29 @@ The setup wizard walks you through the rest:
 1. It asks for a bot token -- message [@BotFather](https://t.me/botfather)
    in Telegram, send `/newbot`, copy the token it gives you.
 2. You text your new bot once -- the wizard detects you automatically.
-3. Pick a reply style. Done. The bridge installs itself as a background
+3. Pick a reply style. The chat bridge installs itself as a background
    service and your bot answers from then on, even after reboots.
+4. It then offers the Mini App and defaults to yes. That step builds the
+   web app, so it takes a few minutes on a first run; the chat bridge is
+   already working while it does. It finishes by printing your public
+   URL and pointing your bot's menu button at it.
+
+Budget about two minutes of your attention and a few more of waiting.
+Everything after the token is either automatic or a yes/no.
 
 No dependencies, no pip installs, no webhooks, no ports. Plain Python that
 ships with macOS, talking outbound to Telegram only.
 
 Requirements: a Mac with [Aside](https://aside.so) installed, and a
-Telegram account. The optional [Mini App](#the-mini-app) also needs
-Node 20+.
+Telegram account. The [Mini App](#the-mini-app) also needs Node 20+ --
+the installer checks for it up front and tells you how to add it later if
+it is missing, rather than failing halfway.
+
+Nothing needs configuring by hand. The wizard finds which Aside account
+you are signed in to (`~/.aside/accounts.json`), writes the matching
+session, credential and database paths, and deliberately pins no model:
+the Mini App reads your desktop app's own default and full provider list
+live, so the phone always shows what the browser shows.
 
 ## What it feels like
 
