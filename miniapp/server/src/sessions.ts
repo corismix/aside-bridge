@@ -358,6 +358,23 @@ export function isPlaceholderTitle(title: string): boolean {
   return PLACEHOLDER_TITLES.has(String(title || '').trim().toLowerCase());
 }
 
+/**
+ * A title derived from a session's own transcript.
+ *
+ * `localScan` already did this for the list, but privately. The thread
+ * route needs the same answer for the same reason -- a session the daemon
+ * has called "Aside CLI" should read the same in the header as it does in
+ * the row above it -- so the derivation is exported rather than
+ * reimplemented. Returns '' when there is nothing to derive from, which
+ * the caller treats as "keep whatever the daemon said".
+ */
+export function titleFromTranscript(
+  sessionsDir: string,
+  id: string,
+): string {
+  return localScan(sessionsDir, id).title;
+}
+
 function timeOf(iso: string | undefined): number {
   const t = Date.parse(String(iso || ''));
   return Number.isFinite(t) ? t : 0;

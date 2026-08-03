@@ -29,6 +29,7 @@ import {
   modelLabel,
   readProviderIds,
 } from './catalog.js';
+import { readDesktopState } from './desktop.js';
 import { StateDb, isFullAccess, isSuspended } from './statedb.js';
 import { SettingsStore, defaultSettingsPath, resolveNewSessionModel } from './settings.js';
 import { stripAgentDirectives, withPreamble, withReminder } from './preamble.js';
@@ -79,10 +80,12 @@ import { readHistory } from './jsonl.js';
 import {
   firstUserText,
   isMobileSession,
+  isPlaceholderTitle,
   isValidSessionId,
   listSessionRows,
   resolveSessionDir,
   sessionMsgFile,
+  titleFromTranscript,
 } from './sessions.js';
 import { SoftConfirmStore, defaultSoftConfirmPath } from './softconfirm.js';
 import { TurnRunner } from './exec.js';
@@ -229,13 +232,56 @@ export async function buildServer(
   );
   const uploadsDir = defaultUploadsDir();
 
-  // The catalog is derived from files that do not change while we run, so
-  // it is built once rather than per request. It is also the source of each
-  // model's context window, which the ring divides by.
-  const catalog = buildCatalog(
-    readProviderIds(config.credentialsPath),
-    config.modelCatalogOverrides as any,
-  );
+  // The catalog USED to be built once, on the assumption that its inputs
+  // could not change while we run. That assumption was wrong: the desktop
+  // app rewrites ~/.aside/u/0/models.json whenever a provider or model is
+  // edited, so a catalog frozen at boot goes stale the moment the owner
+  // touches their model list -- which is exactly how the phone ended up
+  // offering models that no longer existed and hiding ones that did.
+  //
+  // Rebuilding is two small cached-by-the-OS file reads, but it is on the
+  // thread-render path, so it is memoised for a few seconds. Short enough
+  // that a change in the desktop shows up on the phone almost at once, long
+  // enough that a burst of requests does not re-read per item.
+  const CATALOG_TTL_MS = 5_000;
+  let catalogCache: ReturnType<typeof buildCatalog> = [];
+  let catalogAt = 0;
+
+  function currentCatalog(): ReturnType<typeof buildCatalog> {
+    const now = Date.now();
+    if (now - catalogAt < CATALOG_TTL_MS && catalogCache.length) {
+      return catalogCache;
+    }
+    const desktop = readDesktopState(config.sessionsDir);
+    catalogCache = buildCatalog(
+      readProviderIds(config.credentialsPath),
+      config.modelCatalogOverrides as any,
+      desktop.providers,
+      [desktop.defaultModel, ...Object.values(desktop.categories)],
+    );
+    catalogAt = now;
+    return catalogCache;
+  }
+
+  /**
+   * Kept as a getter-backed alias so the many existing `catalog` readers
+   * below pick up refreshes without each one having to remember to call
+   * `currentCatalog()`.
+   */
+  const catalog = new Proxy([] as ReturnType<typeof buildCatalog>, {
+    get(_target, prop, receiver) {
+      return Reflect.get(currentCatalog(), prop, receiver);
+    },
+    has(_target, prop) {
+      return Reflect.has(currentCatalog(), prop);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(currentCatalog());
+    },
+    getOwnPropertyDescriptor(_target, prop) {
+      return Reflect.getOwnPropertyDescriptor(currentCatalog(), prop);
+    },
+  }) as ReturnType<typeof buildCatalog>;
 
   /**
    * Subagents of a session, read from the daemon's table and kept warm so
@@ -436,9 +482,23 @@ export async function buildServer(
        */
       const mobile = isMobileSession(config.sessionsDir, id);
 
+      /**
+       * The daemon titles every CLI-created session "Aside CLI", and every
+       * session this app starts is CLI-created -- so the header on a
+       * brand-new thread read "Aside CLI" rather than what the
+       * conversation was about. The session LIST already worked around
+       * this (see `isPlaceholderTitle` + `localScan`); the thread route
+       * did not, so the same session showed a real title in the list and a
+       * placeholder once opened. Same rule, applied in both places now.
+       */
+      const rawTitle = session?.title || '';
+      const title = isPlaceholderTitle(rawTitle)
+        ? titleFromTranscript(config.sessionsDir, id) || rawTitle
+        : rawTitle;
+
       return {
         sessionId: id,
-        title: session?.title || '',
+        title,
         status,
         /** Blocked on a desktop-only question; see `isSuspended`. */
         suspended: isSuspended(status),
@@ -599,6 +659,20 @@ export async function buildServer(
         return reply.code(413).send({ error: 'file_too_large' });
       }
 
+      /*
+       * The agent owns this directory and may be rewriting it right now,
+       * so the file can vanish between the stat above and the open below.
+       * Unguarded, that ENOENT surfaced as an unhandled 500; a file that
+       * has just been deleted is a 404.
+       */
+      let stream: fs.ReadStream;
+      try {
+        stream = fs.createReadStream(file);
+      } catch {
+        return reply.code(404).send({ error: 'file_not_found' });
+      }
+      stream.on('error', () => stream.destroy());
+
       return reply
         .header('content-type', artifactContentType(file))
         .header('cache-control', 'private, no-store')
@@ -606,7 +680,7 @@ export async function buildServer(
         // as markup for our own origin.
         .header('content-security-policy', "sandbox; default-src 'none'")
         .header('x-content-type-options', 'nosniff')
-        .send(fs.createReadStream(file));
+        .send(stream);
     },
   );
 
@@ -1251,10 +1325,26 @@ export async function buildServer(
 
     // Aside's own current default, so the pills open showing what the
     // browser shows rather than a config guess.
+    //
+    // Three sources, most authoritative first. The daemon is asked first
+    // because it is the live answer, but it needs a ~139MB process spawn
+    // and fails whenever the desktop app is not running -- and it was
+    // failing to `claude-code` + whatever stale string the bridge config
+    // carried, which is how the phone came to show a model the desktop had
+    // not used in days. settings.json is the same value the daemon would
+    // have reported, read straight off disk, so it is a far better second
+    // than the hand-maintained config.
     const daemonDefault = await fetchDefaultModel(facade).catch(() => null);
-    const provider = daemonDefault?.provider || 'claude-code';
-    const modelId = daemonDefault?.modelId || config.defaultModel;
-    const effort = daemonDefault?.thinkingLevel || config.defaultEffort;
+    const desktop = readDesktopState(config.sessionsDir);
+    const fallback = desktop.defaultModel;
+    const provider =
+      daemonDefault?.provider || fallback?.provider || 'claude-code';
+    const modelId =
+      daemonDefault?.modelId || fallback?.modelId || config.defaultModel;
+    const effort =
+      daemonDefault?.thinkingLevel ||
+      fallback?.thinkingLevel ||
+      config.defaultEffort;
 
     return {
       uptimeMs: Date.now() - startedAt,

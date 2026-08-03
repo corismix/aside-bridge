@@ -2,18 +2,20 @@
   "token": "YOUR_BOT_TOKEN_FROM_BOTFATHER",
   "chat_id": 123456789,
   "owner_name": "yourname",
-  "default_model": "claude-sonnet-5",
-  "default_effort": "high",
+  "_comment_default_model": "Leave empty to mirror the Aside desktop app's own default model, read live from its settings.json. Set a provider/model id only if you want the phone pinned to something different.",
+  "default_model": "",
+  "default_effort": "medium",
   "session_id": "",
-  "aside_cli": "~/.aside/cli/Aside CLI.app/Contents/MacOS/aside",
-  "sessions_dir": "~/.aside/u/0/sessions",
-  "credentials_path": "~/.aside/u/0/credentials.json",
+  "_comment_paths": "setup.py fills these in for whichever Aside account you are signed in to (see ~/.aside/accounts.json). Only set them by hand if your install lives somewhere unusual.",
+  "aside_cli": "",
+  "sessions_dir": "",
+  "credentials_path": "",
   "exec_timeout_seconds": 1200,
-  "model_aliases": {
-    "sonnet": "claude-sonnet-5",
-    "fable": "claude-fable-5",
-    "opus": "claude-opus-4-8"
-  },
   "sessions_list_limit": 8,
-  "style": "formal"
+  "style": "formal",
+  "miniapp": {
+    "port": 8790,
+    "tunnel": "cloudflared",
+    "auto_register_menu": true
+  }
 }

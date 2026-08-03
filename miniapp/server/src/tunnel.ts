@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
+import { defaultAsideRoot } from './config.js';
 
 /**
  * The pinned release and its vendored digests -- audit finding M-6.
@@ -71,6 +72,44 @@ const BYO_BINARY_HINT =
 /** Any trycloudflare hostname the CLI prints as it comes up or rotates. */
 const URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
 
+/**
+ * Hostnames under trycloudflare.com that are NOT this machine's tunnel.
+ *
+ * cloudflared talks to `api.trycloudflare.com` to register a quick tunnel
+ * and prints that hostname inside its own error text when registration
+ * fails -- which is exactly what happens on a laptop that just woke up and
+ * has no network yet. The old parser matched it, published it as the public
+ * URL, and pushed it to Telegram's menu button. Observed in the wild on
+ * 2026-08-02: `tunnel url https://api.trycloudflare.com` immediately
+ * followed by `tunnel exited (1)`.
+ *
+ * A real quick-tunnel hostname is a multi-word hyphenated slug, so a bare
+ * single-label host is rejected on both counts: the denylist and the
+ * missing hyphen.
+ */
+const RESERVED_TUNNEL_HOSTS = new Set([
+  'api',
+  'www',
+  'dash',
+  'developers',
+  'update',
+  'protocol-v2',
+  'region1',
+  'region2',
+]);
+
+/** True when `host` looks like a real ephemeral quick-tunnel slug. */
+export function isQuickTunnelHost(host: string): boolean {
+  const label = String(host || '')
+    .replace(/^https:\/\//i, '')
+    .replace(/\.trycloudflare\.com\/?$/i, '')
+    .toLowerCase();
+  if (!label || RESERVED_TUNNEL_HOSTS.has(label)) return false;
+  // Quick tunnels are always several words joined by hyphens. Anything
+  // without one is infrastructure, not us.
+  return label.includes('-');
+}
+
 export interface TunnelAsset {
   asset: string;
   /** darwin ships gzipped tarballs; linux ships a bare binary. */
@@ -99,7 +138,20 @@ export function assetFor(
     if (arch === 'arm') return { asset: 'cloudflared-linux-arm', archive: 'raw' };
     return { asset: 'cloudflared-linux-amd64', archive: 'raw' };
   }
-  throw new Error(`cloudflared is not supported on ${platform}/${arch}`);
+  if (platform === 'win32') {
+    return {
+      asset: is64 ? 'cloudflared-windows-amd64.exe' : 'cloudflared-windows-386.exe',
+      archive: 'raw',
+    };
+  }
+  // Reached only on genuinely exotic platforms now. Name the two ways
+  // forward rather than just refusing: an unsupported tunnel is not the
+  // same as an unusable app, since the server still runs locally.
+  throw new Error(
+    `cloudflared has no build for ${platform}/${arch}. Run with ` +
+      'MINIAPP_TUNNEL=none and expose the port yourself, or install ' +
+      'cloudflared and set MINIAPP_CLOUDFLARED_PATH.',
+  );
 }
 
 /**
@@ -110,7 +162,12 @@ export function assetFor(
  */
 export function parseTunnelUrl(chunk: string): string | null {
   const matches = String(chunk || '').match(URL_RE);
-  return matches && matches.length ? matches[0].toLowerCase() : null;
+  if (!matches) return null;
+  for (const match of matches) {
+    const url = match.toLowerCase();
+    if (isQuickTunnelHost(url)) return url;
+  }
+  return null;
 }
 
 export interface TunnelOptions {
@@ -124,7 +181,28 @@ export interface TunnelOptions {
   /** Injected in tests so no network or process is ever touched. */
   spawnFn?: typeof spawn;
   downloadFn?: (dest: string) => Promise<void>;
+  /**
+   * How often to probe the PUBLIC url and check for a sleep/wake gap.
+   * Defaults to 45s; set to 0 to disable the watchdog entirely.
+   */
+  healthIntervalMs?: number;
+  /** Consecutive probe failures before the tunnel is force-recycled. */
+  healthFailureLimit?: number;
+  /** Fired every time a probe confirms the public url is reachable. */
+  onHealthy?: (url: string) => void;
+  /** Injected in tests. */
+  fetchFn?: typeof fetch;
 }
+
+/**
+ * Extra timer lag that means "this machine was asleep", not "this machine
+ * was busy".
+ *
+ * A setInterval does not fire while macOS is suspended, so the first tick
+ * after the lid opens arrives late by roughly the sleep duration. 20s of
+ * slack is far more than scheduler jitter and far less than any real nap.
+ */
+const WAKE_DRIFT_MS = 20_000;
 
 export function sha256File(file: string): string {
   const hash = crypto.createHash('sha256');
@@ -296,6 +374,10 @@ export class Tunnel {
   private stopped = false;
   private restarts = 0;
   private timer: NodeJS.Timeout | null = null;
+  private monitor: NodeJS.Timeout | null = null;
+  private lastTick = Date.now();
+  private failures = 0;
+  private recycling = false;
   url: string | null = null;
 
   constructor(private readonly opts: TunnelOptions) {}
@@ -312,8 +394,114 @@ export class Tunnel {
     this.opts.onUrl?.(found);
   }
 
+  /**
+   * Probe the tunnel from the OUTSIDE.
+   *
+   * Checking that the child process is alive is not the same as checking
+   * that the tunnel works, and after a sleep/wake cycle those two answers
+   * routinely disagree: cloudflared keeps running while its edge
+   * connections are dead, so `exit` never fires, nothing restarts, and the
+   * hostname Telegram is pointed at serves Cloudflare's own 5xx error page
+   * forever. Only a request that travels out to Cloudflare and back to this
+   * process can tell the difference.
+   */
+  private async probe(url: string): Promise<boolean> {
+    const fetchFn = this.opts.fetchFn || fetch;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const res = await fetchFn(`${url}/api/health`, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: { 'cache-control': 'no-cache' },
+      });
+      // Cloudflare's tunnel-down pages are 502/503/530. Anything this
+      // origin generated itself (including a 401) proves the path is up.
+      return res.status < 500;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Tear the child down so the exit handler brings up a fresh hostname. */
+  recycle(reason: string): void {
+    if (this.stopped || this.recycling) return;
+    this.recycling = true;
+    this.failures = 0;
+    this.url = null;
+    this.log(`recycling tunnel: ${reason}`);
+    const child = this.child;
+    if (!child) {
+      // Nothing running and no pending restart means the backoff timer was
+      // the only thing holding it; let it proceed.
+      this.recycling = false;
+      return;
+    }
+    child.kill('SIGTERM');
+    // A cloudflared wedged on a dead socket can ignore SIGTERM. Do not let
+    // a hung child block the restart path indefinitely.
+    const hard = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // already gone
+      }
+    }, 5_000);
+    hard.unref?.();
+    child.once('exit', () => {
+      clearTimeout(hard);
+      this.recycling = false;
+    });
+  }
+
+  private async tick(period: number): Promise<void> {
+    if (this.stopped) return;
+    const now = Date.now();
+    const drift = now - this.lastTick;
+    this.lastTick = now;
+
+    if (drift > period + WAKE_DRIFT_MS) {
+      // The lid was shut. Do not trust the old hostname, and do not wait
+      // for a probe to time out first: recycle straight away so the menu
+      // button is repointed while the user is still walking back to it.
+      this.log(`wake detected after ~${Math.round(drift / 1000)}s asleep`);
+      this.recycle('machine woke from sleep');
+      return;
+    }
+
+    const url = this.url;
+    if (!url) return;
+
+    if (await this.probe(url)) {
+      this.failures = 0;
+      // A tunnel that has proven itself should not inherit the long backoff
+      // earned by an earlier bad patch of network.
+      this.restarts = 0;
+      this.opts.onHealthy?.(url);
+      return;
+    }
+
+    this.failures += 1;
+    const limit = this.opts.healthFailureLimit ?? 2;
+    this.log(`tunnel probe failed (${this.failures}/${limit})`);
+    if (this.failures >= limit) this.recycle('public url stopped responding');
+  }
+
+  private startMonitor(): void {
+    const period = this.opts.healthIntervalMs ?? 45_000;
+    if (this.monitor || period <= 0) return;
+    this.lastTick = Date.now();
+    this.monitor = setInterval(() => {
+      void this.tick(period).catch(() => {});
+    }, period);
+    this.monitor.unref?.();
+  }
+
   async start(): Promise<void> {
     this.stopped = false;
+    this.startMonitor();
     const supplied = userSuppliedCloudflared(this.opts.cloudflaredPath);
     if (supplied) {
       // Their binary, their call: nothing to verify and nothing to fetch.
@@ -338,6 +526,12 @@ export class Tunnel {
       [
         'tunnel',
         '--no-autoupdate',
+        // QUIC (UDP 7844) is blocked on some networks (e.g. VPNs), which
+        // leaves the quick tunnel stuck serving Cloudflare 530 while the
+        // process stays alive. HTTP/2 over TCP is the precheck-recommended
+        // fallback and works through those same networks.
+        '--protocol',
+        'http2',
         '--url',
         `http://127.0.0.1:${this.opts.port}`,
       ],
@@ -369,8 +563,200 @@ export class Tunnel {
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    if (this.monitor) clearInterval(this.monitor);
+    this.monitor = null;
     this.child?.kill('SIGTERM');
     this.child = null;
+  }
+}
+
+/**
+ * Read back what Telegram currently believes the menu button is.
+ *
+ * The write side already existed; without this read side there was no way
+ * to notice that a write had been lost, and a lost write is precisely the
+ * failure this file now exists to survive.
+ */
+export async function readMenuButton(
+  botToken: string,
+  chatId: number | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<string | null> {
+  const query =
+    chatId === undefined ? '' : `?chat_id=${encodeURIComponent(String(chatId))}`;
+  const res = await fetchFn(
+    `https://api.telegram.org/bot${botToken}/getChatMenuButton${query}`,
+  );
+  const body = (await res.json()) as {
+    ok?: boolean;
+    result?: { web_app?: { url?: string } };
+  };
+  if (!body?.ok) return null;
+  return body.result?.web_app?.url || null;
+}
+
+/** Compare two menu-button urls ignoring a trailing slash. */
+export function sameMenuUrl(a: string | null, b: string | null): boolean {
+  const norm = (v: string | null) => (v || '').replace(/\/+$/, '').toLowerCase();
+  return norm(a) === norm(b) && norm(a) !== '';
+}
+
+export interface MenuSyncOptions {
+  botToken: string;
+  chatId: number | undefined;
+  log?: (message: string) => void;
+  fetchFn?: typeof fetch;
+  /** How often to re-read Telegram and repair drift. 0 disables. */
+  reconcileIntervalMs?: number;
+  /** Attempts per target before giving up until the next reconcile. */
+  maxAttempts?: number;
+}
+
+/**
+ * Keeps Telegram's menu button pointed at the live tunnel.
+ *
+ * The original code called `setChatMenuButton` once per hostname rotation
+ * and dropped the result on the floor. That is fine on a desktop with a
+ * permanent link and fatal on a laptop: the rotation that matters most
+ * happens the instant the machine wakes, which is the one moment the
+ * network is least likely to be ready. When that single call failed --
+ * logged verbatim as `menu button failed: fetch failed` on 2026-08-02 --
+ * Telegram kept serving the previous, already-dead hostname with nothing
+ * scheduled to ever correct it. The mini app was then broken until the
+ * next unrelated restart.
+ *
+ * So: retry with backoff, and independently re-read the live value on a
+ * timer so a silently lost write repairs itself rather than persisting.
+ */
+export class MenuSync {
+  private target: string | null = null;
+  private confirmed: string | null = null;
+  private attempt = 0;
+  private retry: NodeJS.Timeout | null = null;
+  private timer: NodeJS.Timeout | null = null;
+  private stopped = false;
+
+  constructor(private readonly opts: MenuSyncOptions) {}
+
+  private log(message: string): void {
+    this.opts.log?.(message);
+  }
+
+  /** Point the button at `url`, retrying until Telegram confirms it. */
+  setTarget(url: string): void {
+    if (this.stopped) return;
+    if (this.target === url) {
+      // Already landed. Re-writing on every health probe would mean a
+      // Bot API write every 45s for the life of the process, to say
+      // something Telegram already knows.
+      if (this.confirmed === url) return;
+      void this.push();
+      return;
+    }
+    this.target = url;
+    this.attempt = 0;
+    this.confirmed = null;
+    void this.push();
+  }
+
+  private schedule(): void {
+    if (this.stopped || this.retry) return;
+    const max = this.opts.maxAttempts ?? 8;
+    if (this.attempt >= max) {
+      this.log(
+        `menu button still unset after ${max} attempts; leaving it to the ` +
+          'reconcile loop',
+      );
+      return;
+    }
+    // 2s, 4s, 8s ... capped. A laptop's network is usually back well
+    // inside the first few of these, so the first retry is deliberately
+    // the short one: `attempt` has already been incremented by the call
+    // that just failed, so it is stepped back to keep 2s first.
+    const step = Math.max(0, Math.min(this.attempt - 1, 5));
+    const delay = Math.min(60_000, 2000 * 2 ** step);
+    this.retry = setTimeout(() => {
+      this.retry = null;
+      void this.push();
+    }, delay);
+    this.retry.unref?.();
+  }
+
+  private async push(): Promise<void> {
+    const url = this.target;
+    if (this.stopped || !url) return;
+    this.attempt += 1;
+    try {
+      const res = await registerMenuButton(
+        this.opts.botToken,
+        url,
+        this.opts.chatId,
+        this.opts.fetchFn || fetch,
+      );
+      if (!res.ok) {
+        this.log(`menu button rejected: ${res.description || 'unknown'}`);
+        this.schedule();
+        return;
+      }
+      this.confirmed = url;
+      this.attempt = 0;
+      this.log('menu button registered');
+    } catch (err) {
+      this.log(
+        `menu button attempt ${this.attempt} failed: ${(err as Error).message}`,
+      );
+      this.schedule();
+    }
+  }
+
+  /**
+   * Re-read Telegram and repair any drift.
+   *
+   * This is the backstop that makes the whole thing self-healing: even if
+   * every retry above was exhausted while the network was down, the next
+   * successful read notices the mismatch and writes again.
+   */
+  async reconcile(): Promise<void> {
+    const url = this.target;
+    if (this.stopped || !url) return;
+    try {
+      const live = await readMenuButton(
+        this.opts.botToken,
+        this.opts.chatId,
+        this.opts.fetchFn || fetch,
+      );
+      if (sameMenuUrl(live, url)) {
+        this.confirmed = url;
+        return;
+      }
+      this.log(`menu button drifted (telegram has ${live || 'none'}); repairing`);
+      this.attempt = 0;
+      await this.push();
+    } catch {
+      // Offline. The next tick tries again; nothing to do here.
+    }
+  }
+
+  start(): void {
+    const period = this.opts.reconcileIntervalMs ?? 120_000;
+    if (this.timer || period <= 0) return;
+    this.timer = setInterval(() => {
+      void this.reconcile().catch(() => {});
+    }, period);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    if (this.retry) clearTimeout(this.retry);
+    this.timer = null;
+    this.retry = null;
+  }
+
+  /** The url Telegram has confirmed, or null if the write never landed. */
+  get liveUrl(): string | null {
+    return this.confirmed;
   }
 }
 
@@ -380,14 +766,26 @@ export class Tunnel {
  * Built as a pure function so it can be asserted in tests without any
  * chance of a request going out.
  */
-export function menuButtonPayload(url: string, text = 'Aside') {
-  return {
+export function menuButtonPayload(
+  url: string,
+  text = 'Aside',
+  chatId?: number,
+) {
+  // chat_id is set explicitly because per-chat menu buttons override the
+  // bot default. A prior chat-level override (from manual setup or an older
+  // build) silently overrides later chat-less setChatMenuButton calls: the
+  // API returns ok:true while the owner's chat keeps serving the stale URL.
+  // Targeting the owner chat directly updates both the per-chat button and,
+  // when none is set, falls through to the default.
+  const payload: Record<string, unknown> = {
     menu_button: {
       type: 'web_app',
       text,
       web_app: { url },
     },
   };
+  if (chatId !== undefined) payload.chat_id = chatId;
+  return payload;
 }
 
 /**
@@ -401,6 +799,7 @@ export function menuButtonPayload(url: string, text = 'Aside') {
 export async function registerMenuButton(
   botToken: string,
   url: string,
+  chatId: number | undefined,
   fetchFn: typeof fetch = fetch,
 ): Promise<{ ok: boolean; description?: string }> {
   const res = await fetchFn(
@@ -408,7 +807,7 @@ export async function registerMenuButton(
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(menuButtonPayload(url)),
+      body: JSON.stringify(menuButtonPayload(url, 'Aside', chatId)),
     },
   );
   const body = (await res.json()) as { ok?: boolean; description?: string };
@@ -427,5 +826,8 @@ export function rotateLog(logPath: string, maxBytes: number): void {
 }
 
 export function defaultBinDir(stateDir: string): string {
-  return path.join(stateDir || path.join(os.homedir(), '.aside/u/0/telegram-bridge'), 'bin');
+  return path.join(
+    stateDir || path.join(defaultAsideRoot(), 'telegram-bridge'),
+    'bin',
+  );
 }

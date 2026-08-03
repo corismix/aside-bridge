@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { Composer } from '../src/components/Composer';
+import { BottomBar, Composer } from '../src/components/Composer';
 import type { PillState } from '../src/components/Composer';
 
 afterEach(cleanup);
@@ -63,6 +63,18 @@ const pills: PillState = {
   provider: 'openrouter',
 };
 
+function renderBar() {
+  return render(
+    <BottomBar
+      permission="Guard"
+      pills={pills}
+      onOpenModel={vi.fn()}
+      onOpenPermission={vi.fn()}
+      context={{ used: 0, window: 0 }}
+    />,
+  );
+}
+
 function renderComposer() {
   return render(
     <Composer
@@ -72,7 +84,6 @@ function renderComposer() {
       onSubmit={vi.fn()}
       pills={pills}
       onOpenModel={vi.fn()}
-      onOpenEffort={vi.fn()}
       onOpenPermission={vi.fn()}
       permissionMode="guard"
       attachments={[]}
@@ -101,20 +112,32 @@ describe('the pill cannot widen the app', () => {
     expect(ruleBody(componentsCss, '.pill-effort')).toContain('flex: none');
   });
 
-  it('the long model id renders inside .pill-label, the effort pill carries .pill-effort', () => {
+  it('the composer carries exactly one pill: the model', () => {
+    // Reasoning moved into the model sheet, so the action row has a single
+    // pill to fit. That is what stopped the label ellipsising to
+    // "DeepSee…" inside a 336px card.
     const { container } = renderComposer();
+    const found = Array.from(container.querySelectorAll('.pill'));
+    expect(found.length).toBe(1);
+    expect(found[0].classList.contains('pill-effort')).toBe(false);
+  });
+
+  it('neither surface still renders an effort pill', () => {
+    for (const { container } of [renderComposer(), renderBar()]) {
+      expect(container.querySelector('.pill-effort')).toBeNull();
+    }
+  });
+
+  it('the long model id renders inside .pill-label', () => {
+    const { container } = renderBar();
     const labels = Array.from(container.querySelectorAll('.pill-label'));
-    expect(labels.map((el) => el.textContent)).toContain(LONG_MODEL);
-
-    const effort = Array.from(container.querySelectorAll('.pill')).find((el) =>
-      el.textContent?.includes('High'),
+    // The pill drops a trailing parenthetical qualifier -- see
+    // `pillModelLabel` -- so the id renders without its "(max)" suffix.
+    // What matters here is that it is inside .pill-label, which is the
+    // element carrying the ellipsis.
+    expect(labels.map((el) => el.textContent)).toContain(
+      'oc/deepseek-v4-flash-free',
     );
-    expect(effort?.classList.contains('pill-effort')).toBe(true);
-
-    const model = Array.from(container.querySelectorAll('.pill')).find((el) =>
-      el.textContent?.includes(LONG_MODEL),
-    );
-    expect(model?.classList.contains('pill-effort')).toBe(false);
   });
 });
 

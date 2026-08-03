@@ -1,5 +1,7 @@
 # aside-telegram-bridge
 
+> **A fork.** This builds on [SaiAmartya/aside-telegram-bridge](https://github.com/SaiAmartya/aside-telegram-bridge) and stays MIT licensed, with the original copyright intact. Changes here: a self-healing Cloudflare tunnel that survives sleep/wake, a model catalog read live from the Aside desktop app instead of a hand-kept copy, account auto-detection, and a rebuilt mobile UI.
+
 Text your [Aside](https://aside.so) browser agent from your phone.
 
 Your full Aside agent -- tools, memory, everything -- living in a Telegram
@@ -11,7 +13,7 @@ progress fold into a tidy collapsible worklog when it's done.
 Open Terminal and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SaiAmartya/aside-telegram-bridge/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Parthkkk/aside-telegram-bridge/main/install.sh | bash
 ```
 
 The setup wizard walks you through the rest:
@@ -79,9 +81,14 @@ the full Aside UI, inside Telegram, on the phone you already have out.
 
 https://github.com/user-attachments/assets/d119cb77-8860-463e-87b5-88b98212fc29
 
-| Sessions | Live tool stream | Approvals | Results |
-|:---:|:---:|:---:|:---:|
-| <img src="docs/screenshots/miniapp-sessions.jpg" alt="Every Aside session on the Mac, with live status" width="220"/> | <img src="docs/screenshots/miniapp-live-transcript.jpg" alt="Tool calls and file diffs streaming in as they happen" width="220"/> | <img src="docs/screenshots/miniapp-approval.jpg" alt="An approval request rendered as a card with tappable options" width="220"/> | <img src="docs/screenshots/miniapp-result.jpg" alt="A finished task with rendered markdown and proof screenshot" width="220"/> |
+| Home | Model &amp; reasoning |
+|:---:|:---:|
+| <img src="docs/screenshots/home.jpg" alt="The mini app home screen: a greeting and the composer, with history one swipe below" width="240"/> | <img src="docs/screenshots/models.jpg" alt="The model sheet, listing whatever providers and models the desktop app has configured" width="240"/> |
+
+Opening the app lands on a quiet screen: the mark, a greeting and the
+composer. Your history is one swipe below, scrolling up from under the
+composer. The composer itself does not change when you send -- the thread is
+the same screen with the conversation in it.
 
 Tap the **Aside** button next to the message box and you get:
 
@@ -250,7 +257,7 @@ an approval, a blocker) escapes the fold and pings for real.
 <summary><b>Manual setup</b> (if you'd rather not pipe curl to bash)</summary>
 
 ```bash
-git clone https://github.com/SaiAmartya/aside-telegram-bridge
+git clone https://github.com/Parthkkk/aside-telegram-bridge
 cd aside-telegram-bridge
 python3 setup.py
 ```

@@ -12,6 +12,7 @@ setup.py, install.sh, or the running bridge.
 """
 import json
 import os
+import re
 import plistlib
 import shutil
 import subprocess
@@ -332,6 +333,24 @@ def health_check(port, attempts=20):
     return False
 
 
+# Hosts under trycloudflare.com that are NOT this machine's tunnel.
+# cloudflared talks to api.trycloudflare.com to register a quick tunnel and
+# names it in its own error text, so a naive "first https:// on a line
+# mentioning trycloudflare" search can report the API endpoint as the public
+# URL. A real quick-tunnel hostname is a multi-word hyphenated slug.
+_TUNNEL_RESERVED = {"api", "www", "dash", "developers", "update",
+                    "protocol-v2", "region1", "region2"}
+_TUNNEL_RE = re.compile(r"https://([a-z0-9-]+)\.trycloudflare\.com")
+
+
+def is_quick_tunnel_url(url):
+    m = _TUNNEL_RE.match(url or "")
+    if not m:
+        return False
+    label = m.group(1)
+    return label not in _TUNNEL_RESERVED and "-" in label
+
+
 def find_tunnel_url(log_paths, attempts=30):
     """The server logs the tunnel hostname once cloudflared reports it."""
     for _ in range(attempts):
@@ -339,12 +358,10 @@ def find_tunnel_url(log_paths, attempts=30):
             try:
                 with open(path) as fh:
                     for line in reversed(fh.read().splitlines()):
-                        if "trycloudflare.com" in line:
-                            start = line.find("https://")
-                            if start == -1:
-                                continue
-                            url = line[start:].split()[0].strip('"\',')
-                            return url
+                        for m in _TUNNEL_RE.finditer(line):
+                            url = m.group(0)
+                            if is_quick_tunnel_url(url):
+                                return url
             except OSError:
                 pass
         time.sleep(2)

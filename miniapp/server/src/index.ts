@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildServer } from './app.js';
 import { loadConfig, loadOrCreateJwtSecret } from './config.js';
-import { Tunnel, defaultBinDir, registerMenuButton } from './tunnel.js';
+import { MenuSync, Tunnel, defaultBinDir } from './tunnel.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,7 +38,25 @@ async function main(): Promise<void> {
     `aside mini app listening on http://${host}:${config.port}`,
   );
 
+  let menu: MenuSync | null = null;
+
   if (config.miniapp.tunnel === 'cloudflared') {
+    if (config.miniapp.autoRegisterMenu) {
+      // Owns retries and drift repair. A single fire-and-forget call used
+      // to live inline here, and losing that one call (network not up yet
+      // on wake) left Telegram pointed at a dead hostname permanently.
+      menu = new MenuSync({
+        botToken: config.botToken,
+        chatId: config.allowedUserId,
+        log: (message) => app.log.info(message),
+      });
+      menu.start();
+    } else {
+      app.log.info(
+        'menu auto-registration is off; set miniapp.auto_register_menu to enable',
+      );
+    }
+
     tunnel = new Tunnel({
       port: config.port,
       binDir: defaultBinDir(config.miniapp.stateDir),
@@ -46,23 +64,19 @@ async function main(): Promise<void> {
       log: (message) => app.log.info(message),
       onUrl: (url) => {
         app.log.info(`public url: ${url}`);
-        if (!config.miniapp.autoRegisterMenu) {
-          app.log.info(
-            'menu auto-registration is off; set miniapp.auto_register_menu to enable',
-          );
-          return;
-        }
         // Re-runs on every hostname rotation, which is what keeps an
         // ephemeral quick-tunnel usable as a menu button target.
-        registerMenuButton(config.botToken, url).then(
-          (res) =>
-            app.log.info(
-              res.ok
-                ? 'menu button registered'
-                : `menu button rejected: ${res.description}`,
-            ),
-          (err) => app.log.error(`menu button failed: ${err.message}`),
-        );
+        menu?.setTarget(url);
+      },
+      onHealthy: (url) => {
+        // The tunnel is provably reachable from the public internet, so
+        // this is the right moment to confirm Telegram agrees about where
+        // to send people. `reconcile` reads first and only writes on a
+        // genuine mismatch, which closes the last gap -- a write that
+        // returned ok but did not stick -- without turning the health
+        // probe into a write loop.
+        menu?.setTarget(url);
+        void menu?.reconcile();
       },
     });
     tunnel.start().catch((err) => {
@@ -70,9 +84,29 @@ async function main(): Promise<void> {
     });
   }
 
+  /*
+   * Node terminates the process on an unhandled rejection. This server is
+   * meant to sit running for weeks behind a KeepAlive job, and it is full
+   * of deliberate fire-and-forget `void` calls -- menu registration, read
+   * marking, subagent refreshes. Any one of those growing a throw would
+   * take the whole app down and take the tunnel with it. Log it and stay
+   * up; a dropped background task is recoverable, a dead process is not.
+   */
+  process.on('unhandledRejection', (reason) => {
+    app.log.error(
+      { err: reason instanceof Error ? reason : new Error(String(reason)) },
+      'unhandled rejection',
+    );
+  });
+
+  process.on('uncaughtException', (err) => {
+    app.log.error({ err }, 'uncaught exception');
+  });
+
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       tunnel?.stop();
+      menu?.stop();
       app.close().then(
         () => process.exit(0),
         () => process.exit(1),

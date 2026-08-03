@@ -68,6 +68,36 @@ def tg(token, method, params=None, timeout=30):
         return json.load(r)
 
 
+def detect_aside_account():
+    """The Aside account directory this machine is signed in to.
+
+    Aside numbers accounts and records the active one in
+    ~/.aside/accounts.json. Everything used to assume "u/0", which is only
+    right for someone still on their first account -- anyone on a second
+    one would have had the bridge point at an empty account and show an
+    empty session list, with nothing explaining why.
+    """
+    accounts = os.path.expanduser("~/.aside/accounts.json")
+    try:
+        with open(accounts) as f:
+            current = json.load(f).get("currentAccountId")
+        if isinstance(current, int) and current >= 0:
+            return os.path.expanduser("~/.aside/u/%d" % current)
+    except (OSError, ValueError, TypeError):
+        pass
+    return os.path.expanduser("~/.aside/u/0")
+
+
+def detect_aside_paths():
+    """Sessions dir, credentials and state db for the active account."""
+    root = detect_aside_account()
+    return {
+        "sessions_dir": os.path.join(root, "sessions"),
+        "credentials_path": os.path.join(root, "credentials.json"),
+        "state_db_path": os.path.join(root, "state.db"),
+    }
+
+
 def step_checks():
     say("%s— Checking your machine —%s" % (BOLD, RESET))
     if sys.platform != "darwin":
@@ -93,6 +123,15 @@ def step_checks():
             sys.exit(1)
         cli = os.path.expanduser(custom)
     ok("Aside CLI found")
+
+    paths = detect_aside_paths()
+    if os.path.isdir(paths["sessions_dir"]):
+        ok("Aside account detected (%s)"
+           % os.path.basename(os.path.dirname(paths["sessions_dir"])))
+    else:
+        warn("no sessions directory yet at %s" % paths["sessions_dir"])
+        say("    That is normal on a brand-new Aside install; it appears")
+        say("    the first time you run a session.")
     return cli
 
 
@@ -223,7 +262,16 @@ def write_config(token, chat_id, name, style, cli):
         "style": style,
         "aside_cli": cli,
     })
-    cfg.setdefault("default_model", "claude-sonnet-5")
+    # Point at whichever Aside account is actually signed in, rather than
+    # letting the server fall back to a guess.
+    cfg.update(detect_aside_paths())
+    # Deliberately NOT pinned to a model here. An empty default means the
+    # Mini App reads the desktop app's own default live from settings.json
+    # on every request, so the phone always shows what the browser shows --
+    # and a user with no Claude access does not get a first turn aimed at
+    # a Claude model. See desktop.ts.
+    cfg.setdefault("default_model", "")
+    cfg.setdefault("default_effort", "medium")
     if persona_changed:
         drop_stale_session(cfg)
     with open(CONFIG_PATH, "w") as f:

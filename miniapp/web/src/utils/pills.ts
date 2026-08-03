@@ -74,3 +74,53 @@ export function resolvePills(
 
   return { provider, modelId, modelLabel, effortId, effortLabel };
 }
+
+/**
+ * The model name as the composer pill should show it.
+ *
+ * The pill lives in the tightest row in the app -- three round buttons and
+ * two pills inside a 336px card -- and a catalog label like
+ * "DeepSeek V4 Flash (Free)" needs about 165px of the ~200px the two pills
+ * share. The result was a pill reading "DeepSee…", which names nothing.
+ *
+ * A trailing parenthetical is the part worth losing: "(Free)", "(Max)",
+ * "(Nvidia)" qualify a model, they do not identify it, and the full label
+ * is still shown in the picker one tap away. Everything else is left
+ * alone, and CSS ellipsis remains the backstop for genuinely long ids.
+ */
+export function pillModelLabel(label: string): string {
+  const trimmed = String(label || '').trim();
+  const withoutSuffix = trimmed.replace(/\s*\([^()]*\)\s*$/, '').trim();
+  // Never return an empty pill: a label that is ONLY a parenthetical keeps
+  // whatever it had.
+  return withoutSuffix || trimmed;
+}
+
+/**
+ * The reasoning level as the composer pill should show it.
+ *
+ * The pill shares one 336px row with the attach button, the permission
+ * badge, the model pill and send. Aside's own effort names run to
+ * "Extra High" and "Ultrabrowse", and at full length either one pushes the
+ * model pill down to an ellipsis that names nothing.
+ *
+ * These abbreviations are short enough to fit and long enough to stay
+ * unambiguous -- no two levels share a prefix here -- and the full name is
+ * still what the picker shows.
+ */
+const EFFORT_SHORT: Record<string, string> = {
+  off: 'Off',
+  minimal: 'Min',
+  low: 'Low',
+  medium: 'Med',
+  high: 'High',
+  'extra high': 'XHigh',
+  xhigh: 'XHigh',
+  max: 'Max',
+  ultrabrowse: 'Ultra',
+};
+
+export function pillEffortLabel(label: string): string {
+  const trimmed = String(label || '').trim();
+  return EFFORT_SHORT[trimmed.toLowerCase()] ?? trimmed;
+}
