@@ -93,11 +93,9 @@ aside: Drafted a reply. Want to see it before I send?
 The chat is for texting your agent. The Mini App is for *watching* it work:
 the full Aside UI, inside Telegram, on the phone you already have out.
 
-https://github.com/user-attachments/assets/d119cb77-8860-463e-87b5-88b98212fc29
-
-| Home | Model &amp; reasoning |
-|:---:|:---:|
-| <img src="docs/screenshots/home.jpg" alt="The mini app home screen: a greeting and the composer, with history one swipe below" width="240"/> | <img src="docs/screenshots/models.jpg" alt="The model sheet, listing whatever providers and models the desktop app has configured" width="240"/> |
+| Home | Sessions | Model &amp; reasoning |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/home.jpg" alt="The mini app home screen: a greeting and the composer, with history one swipe below" width="240"/> | <img src="docs/screenshots/history.jpg" alt="The session list, showing recent Aside chats with timestamps" width="240"/> | <img src="docs/screenshots/models.jpg" alt="The model sheet, listing whatever providers and models the desktop app has configured" width="240"/> |
 
 Opening the app lands on a quiet screen: the mark, a greeting and the
 composer. Your history is one swipe below, scrolling up from under the
