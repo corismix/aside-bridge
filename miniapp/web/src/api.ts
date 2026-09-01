@@ -88,7 +88,7 @@ export const api = {
       attachments?: string[];
     },
   ) =>
-    request<{ accepted: boolean; queued: number; busy: boolean }>(
+    request<{ accepted: boolean; queued: number; busy: boolean; sessionId: string; recoveredFrom?: string }>(
       `/api/sessions/${encodeURIComponent(sessionId)}/send`,
       { method: 'POST', body: JSON.stringify(payload) },
     ),
@@ -196,7 +196,7 @@ export const api = {
     sessionId: string,
     payload: { header: string; label: string; model?: string; effort?: string },
   ) =>
-    request<{ accepted: boolean; queued: number; busy: boolean }>(
+    request<{ accepted: boolean; queued: number; busy: boolean; sessionId: string; recoveredFrom?: string }>(
       `/api/sessions/${encodeURIComponent(sessionId)}/answer`,
       { method: 'POST', body: JSON.stringify(payload) },
     ),

@@ -212,7 +212,6 @@ saved_state = dict(b.state)
 try:
     b.SESSIONS_DIR = sessions
     b.subprocess.run = lambda cmd, **kw: FakeProc()
-    b.run_aside = lambda *a, **k: (0, "ok", "")
     b._prepare_new_session = lambda sid: None
 
     def reset(session_id="previous0000"):
@@ -220,12 +219,28 @@ try:
         b.state["session_id"] = session_id
         b.state["model"] = "claude-sonnet-5"
 
+    NEXT = {}
+
     def make_session(sid, body):
+        """Configure the transcript the next mocked create will write."""
+        NEXT["sid"] = sid
+        NEXT["body"] = body
+
+    def fake_create(prompt, *a, **k):
+        marker = b.re.search(r"bridge-session-marker:[0-9a-f]+", prompt).group(0)
+        sid = NEXT["sid"]
         d = os.path.join(sessions, "2026-08-03_" + sid)
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "messages.jsonl"), "w") as f:
-            f.write(body)
+            f.write(json.dumps({"role": "user", "content": prompt}) + "\n")
+            f.write(NEXT["body"])
         return d
+
+    def fake_run(prompt, *a, **k):
+        fake_create(prompt)
+        return 0, "ok", ""
+
+    b.run_aside = fake_run
 
     PERSONA_LINE = json.dumps({
         "role": "user",
@@ -248,7 +263,6 @@ try:
           any(b.model_switch_hint() in t for t in TEXTS))
 
     shutil.rmtree(os.path.join(sessions, "2026-08-03_refusedaaaa"))
-    make_session("healthyccc", PERSONA_LINE)
 
     # (b) THE REGRESSION, both halves of it. The check was
     #
@@ -264,6 +278,7 @@ try:
     saved_read_error = b.read_error_since
     try:
         reset()
+        make_session("missingbbbb", PERSONA_LINE)
         b.session_msg_file = lambda sid: None
         b.heavy_new()
         check("a session with no transcript is not activated",
@@ -272,6 +287,7 @@ try:
 
         reset()
         b.session_msg_file = saved_msg_file
+        make_session("unreadablebb", PERSONA_LINE)
 
         def boom(mf, offset, strict=False):
             if strict:
@@ -289,6 +305,7 @@ try:
 
     # (c) and the happy path still activates
     reset()
+    make_session("healthyccc", PERSONA_LINE)
     b.heavy_new()
     check("a clean session is still switched to",
           b.state["session_id"] == "healthyccc"

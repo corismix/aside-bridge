@@ -68,6 +68,9 @@ export const UNKNOWN_STATE: SessionState = {
   status: null,
 };
 
+/** A presence check must distinguish "not in the daemon" from "couldn't ask". */
+export type SessionPresence = 'present' | 'missing' | 'unavailable';
+
 /**
  * A session row as the daemon's own table has it.
  *
@@ -244,6 +247,19 @@ export class StateDb {
       this.cache.delete(oldest);
     }
     return value;
+  }
+
+  async presence(sessionId: string): Promise<SessionPresence> {
+    const db = await this.open();
+    if (!db) return 'unavailable';
+    try {
+      const row = db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(sessionId);
+      return row ? 'present' : 'missing';
+    } catch {
+      return 'unavailable';
+    } finally {
+      try { db.close(); } catch { /* read-only best effort */ }
+    }
   }
 
   /** Drop a cached row after a write, so the next read reflects it. */
