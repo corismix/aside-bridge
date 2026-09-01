@@ -1248,7 +1248,7 @@ export function rotateLog(logPath: string, maxBytes: number): void {
 
 export function defaultBinDir(stateDir: string): string {
   return path.join(
-    stateDir || path.join(defaultAsideRoot(), 'telegram-bridge'),
+    stateDir || path.join(defaultAsideRoot(), 'bridge'),
     'bin',
   );
 }

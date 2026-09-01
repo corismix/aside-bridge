@@ -117,9 +117,9 @@ npm start          # serves on 127.0.0.1:8790
 
 Optional. Everything below lives in the `miniapp` section of the bridge's
 `config.json`, which `setup.py` writes into your checkout (so
-`~/aside-telegram-bridge/config.json` for a one-line install). The server
+`~/aside-bridge/config.json` for a one-line install). The server
 looks there first and falls back to
-`~/.aside/u/0/telegram-bridge/config.json`; `MINIAPP_CONFIG` overrides
+`~/.aside/u/0/bridge/config.json`; `MINIAPP_CONFIG` overrides
 both, and the launchd service sets it explicitly.
 
 | key | default | what it does |

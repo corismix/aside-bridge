@@ -40,7 +40,7 @@ __pycache__/
 # --- local-only tooling, not part of the published project ---------------
 .DS_Store
 # A stray nested checkout of this same repo; never part of a release.
-/aside-telegram-bridge/
+/aside-bridge/
 # Scratch harness used to render the web app at phone size during review.
 miniapp/web/dist/__preview.html
 channel-guard*.py

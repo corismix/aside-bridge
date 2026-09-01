@@ -203,10 +203,8 @@ export function defaultAsideRoot(home = os.homedir()): string {
  * Where the bridge's config.json might live, best candidate first.
  *
  * `setup.py` writes it into the repo checkout, so that is where a wizard
- * install actually keeps it. `~/.aside/u/0/telegram-bridge/config.json`
- * was the documented location and is still searched, so an install that
- * put it there keeps working. Both are tried because someone running
- * `npm start` by hand should not have to know which layout they got.
+ * install actually keeps it. `~/.aside/u/0/bridge/config.json` is the
+ * default per-account location.
  *
  * `MINIAPP_CONFIG` overrides everything: the launchd plist sets it, and
  * so do the tests.
@@ -222,7 +220,7 @@ export function configCandidates(): string[] {
   );
   return [
     path.join(repoRoot, 'config.json'),
-    path.join(defaultAsideRoot(), 'telegram-bridge/config.json'),
+    path.join(defaultAsideRoot(), 'bridge/config.json'),
   ];
 }
 

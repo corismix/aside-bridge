@@ -41,7 +41,7 @@ const configCandidates = process.env.MINIAPP_CONFIG
         '../..',
         'config.json',
       ),
-      expandHome('~/.aside/u/0/telegram-bridge/config.json'),
+      expandHome('~/.aside/u/0/bridge/config.json'),
     ];
 const configPath =
   configCandidates.find((candidate) => fs.existsSync(candidate)) ??
