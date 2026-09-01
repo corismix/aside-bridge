@@ -621,7 +621,7 @@ function ThreadScreen({
       // Send what the bar says. Passing the session's own model explicitly
       // keeps a continuation on the model it was already using instead of
       // silently switching it to the account default.
-      await api.send(sessionId, {
+      const result = await api.send(sessionId, {
         text,
         model:
           effective.provider && effective.modelId
@@ -630,6 +630,9 @@ function ThreadScreen({
         effort: effective.effortId,
         attachments: files.map((f) => f.path!).filter(Boolean),
       });
+      if (result.sessionId !== sessionId) {
+        onOpenRecovered(result.sessionId);
+      }
     } finally {
       setSending(false);
     }
@@ -653,7 +656,7 @@ function ThreadScreen({
     const text = header ? `${header}: ${label}` : label;
     thread.addPending({ text, attachments: [], at: Date.now() });
     pinned.current = true;
-    await api.answer(sessionId, {
+    const result = await api.answer(sessionId, {
       header,
       label,
       model:
@@ -662,6 +665,9 @@ function ThreadScreen({
           : undefined,
       effort: effective.effortId,
     });
+    if (result.sessionId !== sessionId) {
+      onOpenRecovered(result.sessionId);
+    }
   };
 
   /**

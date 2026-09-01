@@ -77,6 +77,7 @@ import { TokenError, bearerFrom, mintToken, verifyToken } from './auth.js';
 import { parseTranscript } from './transcript.js';
 import { buildThread } from './thread.js';
 import { readHistory, transcriptTooLarge } from './jsonl.js';
+import { replacementPrompt } from './recovery.js';
 import {
   firstUserText,
   isMobileSession,
@@ -232,6 +233,32 @@ export async function buildServer(
     fileStamp(file, (p) => fs.statSync(p, { throwIfNoEntry: false }) || undefined),
   );
   const uploadsDir = defaultUploadsDir();
+
+  async function replaceMissingSession(
+    id: string,
+    current: string,
+    model: string | undefined,
+    effort: string | undefined,
+    strictConfirm: boolean,
+  ): Promise<string | null> {
+    stateDb.invalidate(id);
+    if ((await stateDb.presence(id)) !== 'missing') return null;
+    const stored = settings.read();
+    const { sessionId } = await runner.createSession({
+      text: withPreamble(replacementPrompt(sessionMsgFile(config.sessionsDir, id), current), { strictConfirm }),
+      model: runner.resolveModel(model),
+      effort: runner.resolveEffort(effort),
+    });
+    softConfirm.set(sessionId, strictConfirm);
+    const mode = stored.defaultPermissionMode ?? undefined;
+    void applyPermission({
+      facade,
+      readRuntimeConfig: async (sid) => (await stateDb.read(sid)).runtimeConfig,
+    }, sessionId, { mode, finalConfirm: false })
+      .then(() => stateDb.invalidate(sessionId))
+      .catch(() => undefined);
+    return sessionId;
+  }
 
   // The catalog USED to be built once, on the assumption that its inputs
   // could not change while we run. That assumption was wrong: the desktop
@@ -1073,6 +1100,21 @@ export async function buildServer(
         return reply.code(404).send({ error: 'session_not_found' });
       }
 
+      const strictConfirm = softConfirm.has(id);
+      const prompt = withReminder(
+        promptWithAttachments(text, attachments.map((f) => f.path)),
+        { strictConfirm },
+      );
+      const model = runner.resolveModel(body.model);
+      const effort = runner.resolveEffort(body.effort);
+      const replacement = await replaceMissingSession(
+        id, prompt, model, effort, strictConfirm,
+      );
+      if (replacement) {
+        return { accepted: true, queued: 0, busy: runner.isBusy(replacement),
+          sessionId: replacement, recoveredFrom: id };
+      }
+
       /**
        * Refuse rather than jam.
        *
@@ -1104,14 +1146,11 @@ export async function buildServer(
          * the attachment header (which is prepended) and cannot make the
          * prompt dash-leading.
          */
-        text: withReminder(
-          promptWithAttachments(text, attachments.map((f) => f.path)),
-          { strictConfirm: softConfirm.has(id) },
-        ),
-        model: runner.resolveModel(body.model),
-        effort: runner.resolveEffort(body.effort),
+        text: prompt,
+        model,
+        effort,
       });
-      return { accepted: true, queued, busy: runner.isBusy(id) };
+      return { accepted: true, queued, busy: runner.isBusy(id), sessionId: id };
     },
   );
 
@@ -1165,6 +1204,18 @@ export async function buildServer(
         return reply.code(404).send({ error: 'session_not_found' });
       }
 
+      const strictConfirm = softConfirm.has(id);
+      const prompt = withReminder(answerMessage(header, label), { strictConfirm });
+      const model = runner.resolveModel(body.model);
+      const effort = runner.resolveEffort(body.effort);
+      const replacement = await replaceMissingSession(
+        id, prompt, model, effort, strictConfirm,
+      );
+      if (replacement) {
+        return { accepted: true, queued: 0, busy: runner.isBusy(replacement),
+          sessionId: replacement, recoveredFrom: id };
+      }
+
       stateDb.invalidate(id);
       const live = await stateDb.read(id);
       if (isSuspended(live.status)) {
@@ -1179,13 +1230,11 @@ export async function buildServer(
         // Same reminder as an ordinary send. Appended, so the answer text
         // still leads the prompt and the `--` terminator still covers a
         // label that begins with a dash.
-        text: withReminder(answerMessage(header, label), {
-          strictConfirm: softConfirm.has(id),
-        }),
-        model: runner.resolveModel(body.model),
-        effort: runner.resolveEffort(body.effort),
+        text: prompt,
+        model,
+        effort,
       });
-      return { accepted: true, queued, busy: runner.isBusy(id) };
+      return { accepted: true, queued, busy: runner.isBusy(id), sessionId: id };
     },
   );
 

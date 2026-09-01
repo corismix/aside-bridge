@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BRIDGE_DIR, "config.json")
@@ -333,6 +334,7 @@ state = load_json(STATE_PATH, {})
 state.setdefault("offset", 0)
 state.setdefault("model", CONFIG.get("default_model", "claude-sonnet-5"))
 state.setdefault("session_id", CONFIG.get("session_id") or None)
+state.setdefault("recovery_from", None)
 state.setdefault("effort_next", None)
 # pending approval-gate request awaiting an Approve/Deny tap, or None.
 # shape: {token, action, details, session_id, message_id, ts}
@@ -501,6 +503,74 @@ def session_msg_file(session_id):
         if name.endswith("_" + session_id):
             return os.path.join(SESSIONS_DIR, name, "messages.jsonl")
     return None
+
+
+def session_registry_status(session_id):
+    """True if Aside knows the session, False if it explicitly does not.
+
+    A transcript is an archive, not a liveness record.  Other failures are
+    deliberately ``None``: an unavailable daemon must never erase a usable
+    handle merely because we could not check it.
+    """
+    if not session_id:
+        return False
+    try:
+        p = subprocess.run(
+            [ASIDE_CLI, "repl", "aside.sessions.get(%s)" % json.dumps(session_id)],
+            capture_output=True, text=True, timeout=30)
+    except Exception as e:  # noqa: BLE001
+        log("session presence check failed for %s: %s" % (session_id, e))
+        return None
+    text = "%s\n%s" % (p.stdout or "", p.stderr or "")
+    if "session not found" in text.lower():
+        return False
+    return True if p.returncode == 0 else None
+
+
+def mark_session_expired(sid):
+    """Retire only an explicitly missing daemon handle; retain its archive."""
+    if state.get("session_id") == sid:
+        state["session_id"] = None
+    state["recovery_from"] = sid
+    state["approval"] = None
+    state["question"] = None
+    save_json(STATE_PATH, state)
+
+
+def recovery_context(sid, limit_blocks=12, limit_chars=12000):
+    """Recent visible conversation only, in chronological order."""
+    mf = session_msg_file(sid) if sid else None
+    rows = []
+    if not mf:
+        return ""
+    try:
+        with open_transcript(mf) as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                role = row.get("role")
+                if role not in ("user", "assistant"):
+                    continue
+                content = row.get("content")
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    text = "\n".join(str(p.get("text", "")) for p in content
+                                     if isinstance(p, dict) and p.get("type") == "text")
+                else:
+                    continue
+                text = strip_agent_directives(text)
+                if not text or "permanent telegram thread" in text.lower():
+                    continue
+                rows.append((role, text))
+    except OSError:
+        return ""
+    rows = rows[-limit_blocks:]
+    while rows and sum(len(text) for _, text in rows) > limit_chars:
+        rows.pop(0)
+    return "\n\n".join("%s: %s" % pair for pair in rows)
 
 
 def open_transcript(path):
@@ -970,12 +1040,16 @@ def send_effort_picker():
 
 def _grant_full_access(sid):
     try:
-        subprocess.run(
+        p = subprocess.run(
             [ASIDE_CLI, "repl",
              "aside.sessions.update('%s', "
              "{ permissionMode: 'full-access' })" % sid],
-            capture_output=True, timeout=30)
-        log("granted full-access to %s" % sid)
+            capture_output=True, text=True, timeout=30)
+        if p.returncode == 0:
+            log("granted full-access to %s" % sid)
+        else:
+            log("full-access grant rejected for %s: %s" %
+                (sid, (p.stderr or p.stdout or "unknown error")[:300]))
     except Exception as e:  # noqa: BLE001
         log("full-access grant failed: %s" % e)
 
@@ -986,6 +1060,13 @@ def switch_session(sid):
         return
     if sid == state["session_id"]:
         send_text("already on that session")
+        return
+    presence = session_registry_status(sid)
+    if presence is False:
+        send_text("that session has expired in Aside; choose another one")
+        return
+    if presence is None:
+        send_text("can't verify that session with Aside right now; not switching")
         return
     state["session_id"] = sid
     save_json(STATE_PATH, state)
@@ -1186,65 +1267,88 @@ def new_session_settings_expression(sid):
 
 def _prepare_new_session(sid):
     try:
-        subprocess.run(
+        p = subprocess.run(
             [ASIDE_CLI, "repl", new_session_settings_expression(sid)],
-            capture_output=True, timeout=30)
-        log("granted full-access and cleared finalConfirm on %s" % sid)
+            capture_output=True, text=True, timeout=30)
+        if p.returncode == 0:
+            log("granted full-access and cleared finalConfirm on %s" % sid)
+            return True
+        log("new-session settings rejected for %s: %s" %
+            (sid, (p.stderr or p.stdout or "unknown error")[:300]))
     except Exception as e:  # noqa: BLE001
         log("new-session settings failed: %s" % e)
+    return False
 
 
-def heavy_new():
-    send_text("spinning up a fresh session...")
-    code, out, err = run_aside(
-        PERSONA_PROMPT, model=state["model"], effort="low"
-    )
-    if True:  # keep original structure below
-        if code != 0:
+def _session_dir_names():
+    try:
+        return set(os.listdir(SESSIONS_DIR))
+    except OSError:
+        return set()
+
+
+def new_marked_session_id(before, marker):
+    """Only adopt a directory created by this invocation's marker."""
+    try:
+        for name in os.listdir(SESSIONS_DIR):
+            if name in before or "_" not in name:
+                continue
+            mf = os.path.join(SESSIONS_DIR, name, "messages.jsonl")
+            try:
+                with open_transcript(mf) as f:
+                    if marker in f.read():
+                        return name.rsplit("_", 1)[1]
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return None
+
+
+def heavy_new(recovery_from=None, announce=True):
+    if announce:
+        send_text("spinning up a fresh session...")
+    marker = "bridge-session-marker:%s" % uuid.uuid4().hex
+    before = _session_dir_names()
+    seed = PERSONA_PROMPT + "\n\n[" + marker + "]"
+    continuity = recovery_context(recovery_from) if recovery_from else ""
+    if continuity:
+        seed += "\n\nRecent visible conversation for continuity only:\n" + continuity
+    code, out, err = run_aside(seed, model=state["model"], effort="low")
+    if code != 0:
+        if announce:
             send_text("couldn't create session: %s" % (err or out)[:300])
-            return
-        time.sleep(1)
-        sid = newest_session_id(
-            exclude=state.get("session_id") or "",
-            must_contain="permanent telegram thread",
-            newer_than=time.time() - 300,
-        )
-        if not sid:
-            send_text("session created but i couldn't find its id, "
-                      "check the log")
-            return
-        # aside exec exits 0 even when the provider refuses the very
-        # first turn (bad/unauthorized model), which writes a transcript
-        # with stopReason="error" and no content. Without this check the
-        # bridge would switch onto a session that dies on its first real
-        # message.
-        #
-        # An UNREADABLE transcript is not a pass. read_error_since returns
-        # "" both for "no error in there" and for "could not read it at
-        # all", and treating those the same is how the check ends up
-        # waving through the exact session it exists to catch. Say what
-        # happened instead of switching onto something unverified.
-        mf = session_msg_file(sid)
-        if not mf or not os.path.isfile(mf):
-            send_text("session %s was created but has no transcript yet, "
-                      "so i can't tell if it started cleanly. not "
-                      "switching to it -- try /new again" % sid)
-            return
-        try:
-            failed = read_error_since(mf, 0, strict=True)
-        except OSError as e:
-            send_text("couldn't read the new session's transcript (%s), "
-                      "so i'm not switching to it -- try /new again"
-                      % str(e)[:120])
-            return
-        if failed:
+        return None
+    time.sleep(1)
+    sid = new_marked_session_id(before, marker)
+    if not sid:
+        if announce:
+            send_text("session created but i couldn't find its id, check the log")
+        return None
+    # A zero exit can still leave a provider-refused first turn on disk.
+    mf = session_msg_file(sid)
+    if not mf or not os.path.isfile(mf):
+        if announce:
+            send_text("session %s was created but has no transcript yet" % sid)
+        return None
+    try:
+        failed = read_error_since(mf, 0, strict=True)
+    except OSError as e:
+        if announce:
+            send_text("couldn't read the new session's transcript (%s)" % str(e)[:120])
+        return None
+    if failed:
+        if announce:
             send_text("fresh session couldn't start: %s -- try %s"
                       % (failed[:200], model_switch_hint()))
-            return
-        state["session_id"] = sid
-        save_json(STATE_PATH, state)
-        _prepare_new_session(sid)
+        return None
+    state["session_id"] = sid
+    state["recovery_from"] = None
+    save_json(STATE_PATH, state)
+    _prepare_new_session(sid)
+    if announce:
         send_text("fresh session ready (%s)" % sid)
+    return sid
 
 
 def tg_send_status(text):
@@ -1929,7 +2033,12 @@ def stream_new(msg_file, pos, turn):
     return pos + consumed, saw
 
 
-def handle_message(text):
+def handle_message(text, replayed=False):
+    if not state.get("session_id"):
+        dead = state.get("recovery_from")
+        if not heavy_new(dead, announce=False):
+            send_text("couldn't renew the expired Aside session; your message was not sent")
+            return
     msg_file = session_msg_file(state["session_id"])
     offset = 0
     if msg_file and os.path.exists(msg_file):
@@ -2013,6 +2122,17 @@ def handle_message(text):
     elif not sent_any:
         if out.strip():
             send_bubbles(out.strip())
+        elif (not replayed and offset == orig_offset and code != 0 and
+              "session not found" in (err or "").lower()):
+            # No transcript output means the daemon rejected this before it
+            # could have executed. Tool/protocol rows count as output too:
+            # replaying after one could duplicate a side effect.
+            dead = state.get("session_id")
+            mark_session_expired(dead)
+            if heavy_new(dead, announce=False):
+                handle_message(text, replayed=True)
+            else:
+                send_text("Aside lost this session and couldn't create its replacement; your message was not sent")
         elif code != 0:
             send_text("hit an error running that: %s"
                       % (err or "unknown")[:300])
@@ -2112,6 +2232,11 @@ def main():
     log("bridge starting. session=%s model=%s owner=%s"
         % (state["session_id"], state["model"], OWNER))
     _reap_stale_exec(state.get("session_id"))
+    if state.get("session_id"):
+        presence = session_registry_status(state["session_id"])
+        if presence is False:
+            log("stored session is absent from Aside; deferring renewal until input")
+            mark_session_expired(state["session_id"])
     # recover a message that was received but not fully processed
     if state.get("pending"):
         log("recovering pending message")
@@ -2122,7 +2247,7 @@ def main():
     threading.Thread(target=worker_loop, daemon=True).start()
 
     # first run ever: no session yet -- create and persona-prime one
-    if not state.get("session_id"):
+    if not state.get("session_id") and not state.get("recovery_from"):
         log("no session configured, creating one")
         TASKS.put(("cmd", "/new"))
 
