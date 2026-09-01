@@ -85,36 +85,12 @@ def label_is_loaded(label):
     return _print_service(label).returncode == 0
 
 
-BRIDGE_LABELS = ["com.aside.telegram-bridge",
-                 "com.saiamartya.aside-telegram-bridge"]
+BRIDGE_LABEL = "com.aside.bridge"
 
 
 def _detect_label():
-    """Support both the public label (setup.py installs) and legacy
-    per-user labels from older manual installs. Always trust launchd's
-    live registry over plist files on disk -- a stale/unused plist
-    file (e.g. left over from a reinstall, or written but never
-    bootstrapped) must never be picked over the label that's actually
-    running the bridge."""
-    loaded = [c for c in BRIDGE_LABELS if label_is_loaded(c)]
-    if len(loaded) == 1:
-        return loaded[0]
-    if len(loaded) > 1:
-        # both registered (e.g. mid-migration) -- prefer whichever
-        # actually has a live pid, so a dead/leftover registration
-        # doesn't win over the real running one.
-        for c in loaded:
-            if "pid = " in _print_service(c).stdout:
-                return c
-        return loaded[0]
-
-    # nothing loaded yet (fresh install, or bridge currently stopped) --
-    # fall back to whichever plist file exists on disk so `watch --start`
-    # and friends still target the right label.
-    for c in BRIDGE_LABELS:
-        if os.path.exists(plist_path(c)):
-            return c
-    return BRIDGE_LABELS[0]
+    """Return the launchd label used by this fresh installation."""
+    return BRIDGE_LABEL
 
 
 _LABEL_CACHE = []

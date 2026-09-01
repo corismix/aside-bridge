@@ -200,8 +200,8 @@ describe('splitAttachmentHeader', () => {
   it('strips the header and recovers the picked filenames', () => {
     const { text, files } = splitAttachmentHeader(
       '[user sent 2 files from their phone, saved to: ' +
-        '/Users/me/.aside/u/0/telegram-bridge/miniapp-uploads/20260727/3a385797c7f6-facts.txt, ' +
-        '/Users/me/.aside/u/0/telegram-bridge/miniapp-uploads/20260727/837a2a9b7b38-notes.txt] ' +
+        '/Users/me/.aside/u/0/bridge/miniapp-uploads/20260727/3a385797c7f6-facts.txt, ' +
+        '/Users/me/.aside/u/0/bridge/miniapp-uploads/20260727/837a2a9b7b38-notes.txt] ' +
         'what do you make of these',
     );
     expect(text).toBe('what do you make of these');

@@ -133,25 +133,10 @@ def detect(loaded, plists=()):
     return bm._detect_label()
 
 
-check("picks the one label launchd actually has",
-      detect({"com.saiamartya.aside-telegram-bridge": "pid = 42"})
-      == "com.saiamartya.aside-telegram-bridge")
-# The bug this replaced: a stale plist file on disk outranking the label
-# that is genuinely running, which produced a false "not running" and a
-# bad auto-rollback.
-check("a stale plist never outranks a live registration",
-      detect({"com.saiamartya.aside-telegram-bridge": "pid = 42"},
-             plists=["com.aside.telegram-bridge"])
-      == "com.saiamartya.aside-telegram-bridge")
-check("with both loaded, the one with a pid wins",
-      detect({"com.aside.telegram-bridge": "state = waiting",
-              "com.saiamartya.aside-telegram-bridge": "pid = 7"})
-      == "com.saiamartya.aside-telegram-bridge")
-check("nothing loaded falls back to the plist on disk",
-      detect({}, plists=["com.saiamartya.aside-telegram-bridge"])
-      == "com.saiamartya.aside-telegram-bridge")
-check("nothing at all falls back to the public label",
-      detect({}) == "com.aside.telegram-bridge")
+check("uses the fresh public label",
+      detect({"com.aside.bridge": "pid = 42"}) == "com.aside.bridge")
+check("stale plist names do not change the public label",
+      detect({}, plists=["com.aside.other-service"]) == "com.aside.bridge")
 check("detection is cached, not re-run per call",
       bm.label() == bm.label())
 

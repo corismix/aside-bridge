@@ -63,7 +63,7 @@ export function sanitizeFilename(raw: unknown): string {
 export function defaultUploadsDir(): string {
   return (
     process.env.MINIAPP_UPLOADS_DIR ||
-    path.join(defaultAsideRoot(), 'telegram-bridge/miniapp-uploads')
+    path.join(defaultAsideRoot(), 'bridge/miniapp-uploads')
   );
 }
 

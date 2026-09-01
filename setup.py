@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive setup wizard for aside-telegram-bridge.
+"""Interactive setup wizard for aside-bridge.
 
 Run:  python3 setup.py
 
@@ -22,7 +22,7 @@ BRIDGE_DIR = os.path.dirname(os.path.realpath(__file__))
 CONFIG_PATH = os.path.join(BRIDGE_DIR, "config.json")
 EXAMPLE_PATH = os.path.join(BRIDGE_DIR, "config.example.json")
 BRIDGE_PY = os.path.join(BRIDGE_DIR, "bridge.py")
-LABEL = "com.aside.telegram-bridge"
+LABEL = "com.aside.bridge"
 PLIST_PATH = os.path.expanduser(
     "~/Library/LaunchAgents/%s.plist" % LABEL)
 
@@ -432,7 +432,7 @@ def offer_path_fix(bin_dir):
         with open(rc, "a") as f:
             if existing and not existing.endswith("\n"):
                 f.write("\n")
-            f.write("\n# added by aside-telegram-bridge setup\n%s\n" % line)
+            f.write("\n# added by aside-bridge setup\n%s\n" % line)
         ok("added to %s -- open a new terminal, or run: %s"
            % (rc, "source %s" % rc))
     except OSError as e:
@@ -495,7 +495,7 @@ def offer_miniapp():
 def main():
     say("")
     say("%s┌─────────────────────────────────────┐%s" % (BOLD, RESET))
-    say("%s│  aside-telegram-bridge setup wizard │%s" % (BOLD, RESET))
+    say("%s│  aside-bridge setup wizard │%s" % (BOLD, RESET))
     say("%s└─────────────────────────────────────┘%s" % (BOLD, RESET))
     say("%s  Text your Aside agent from your phone. ~2 minutes.%s"
         % (DIM, RESET))

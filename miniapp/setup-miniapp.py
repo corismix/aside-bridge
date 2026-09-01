@@ -28,7 +28,7 @@ BRIDGE_DIR = os.path.dirname(MINIAPP_DIR)
 # finds the config a wizard install actually produced.
 CONFIG_CANDIDATES = (
     os.path.join(BRIDGE_DIR, "config.json"),
-    os.path.expanduser("~/.aside/u/0/telegram-bridge/config.json"),
+    os.path.expanduser("~/.aside/u/0/bridge/config.json"),
 )
 LABEL = "com.aside.miniapp"
 PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % LABEL)

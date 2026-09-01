@@ -34,21 +34,13 @@ STATE_PATH = os.path.join(BRIDGE_DIR, "state.json")
 SESSIONS_DIR = os.path.expanduser("~/.aside/u/0/sessions")
 UID = os.getuid()
 
-# The label is DETECTED, not hardcoded.
-#
-# This file used to pin `com.aside.telegram-bridge` while bridgemon.py
-# detected between that and the legacy `com.saiamartya.aside-telegram-bridge`
-# -- so on any machine running the legacy label (every install predating
-# the public rename) `bridgemon watch` reported STOPPED for a bridge that
-# was up, `--kill` booted out a service that did not exist, and `--start`
-# bootstrapped a plist that was not on disk. All three failed silently.
-# One detector, shared, is the fix.
+# The label is shared with bridgemon.py.
 sys.path.insert(0, BRIDGE_DIR)
 try:
     from bridgemon import label as _detect_label, plist_path as _plist_path
 except ImportError:  # bridgemon.py missing: fall back to the public label
     def _detect_label():
-        return "com.aside.telegram-bridge"
+        return "com.aside.bridge"
 
     def _plist_path(lbl):
         return os.path.expanduser("~/Library/LaunchAgents/%s.plist" % lbl)

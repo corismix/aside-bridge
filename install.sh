@@ -1,10 +1,10 @@
 #!/bin/bash
-# aside-telegram-bridge one-line installer
-#   curl -fsSL https://raw.githubusercontent.com/SaiAmartya/aside-telegram-bridge/main/install.sh | bash
+# aside-bridge one-line installer
+#   curl -fsSL https://raw.githubusercontent.com/corismix/aside-bridge/main/install.sh | bash
 set -euo pipefail
 
-REPO="https://github.com/SaiAmartya/aside-telegram-bridge"
-DEST="${ASIDE_BRIDGE_DIR:-$HOME/aside-telegram-bridge}"
+REPO="https://github.com/corismix/aside-bridge"
+DEST="${ASIDE_BRIDGE_DIR:-$HOME/aside-bridge}"
 
 if [ "$(uname)" != "Darwin" ]; then
   echo "✗ macOS only for now (the services install via launchd)." >&2

@@ -1,4 +1,4 @@
-# aside-telegram-bridge
+# aside-bridge
 
 Text your [Aside](https://aside.so) browser agent from your phone.
 
@@ -11,7 +11,7 @@ progress fold into a tidy collapsible worklog when it's done.
 Open Terminal and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SaiAmartya/aside-telegram-bridge/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/corismix/aside-bridge/main/install.sh | bash
 ```
 
 The setup wizard walks you through the rest:
@@ -273,15 +273,15 @@ an approval, a blocker) escapes the fold and pings for real.
 <summary><b>Manual setup</b> (if you'd rather not pipe curl to bash)</summary>
 
 ```bash
-git clone https://github.com/SaiAmartya/aside-telegram-bridge
-cd aside-telegram-bridge
+git clone https://github.com/corismix/aside-bridge
+cd aside-bridge
 python3 setup.py
 ```
 
 The wizard is the same either way. Fully manual (no wizard): copy
 `config.example.json` to `config.json`, fill in `token` / `chat_id` /
 `owner_name`, chmod 600 it, then install
-`com.aside.telegram-bridge.plist` into `~/Library/LaunchAgents` with the
+`com.aside.bridge.plist` into `~/Library/LaunchAgents` with the
 paths corrected, and `launchctl bootstrap gui/$(id -u) <plist>`.
 Leave `aside_cli` / `sessions_dir` / `credentials_path` empty and they are
 detected from the Aside account you are signed in to; set any of them and
@@ -312,7 +312,7 @@ turn to any level (off through ultrabrowse).
 | `bridgemon.py` | deploy/update/rollback CLI + `watch` |
 | `monitor.py` | live monitor + kill switch (via `bridgemon watch`) |
 | `config.example.json` | reference config |
-| `com.aside.telegram-bridge.plist` | launchd template (manual installs) |
+| `com.aside.bridge.plist` | launchd template (manual installs) |
 | `miniapp/` | the Telegram Mini App: Fastify server + React web app |
 | `miniapp/setup-miniapp.py` | Mini App setup wizard (Node, build, service) |
 | `docs/MINIAPP.md` | Mini App: how it works, setup, limitations |

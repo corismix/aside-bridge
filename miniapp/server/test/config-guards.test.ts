@@ -87,7 +87,7 @@ describe('tunnel + menu kill-switches', () => {
  * Where the bridge config is looked for.
  *
  * `setup.py` writes config.json into the checkout, but this server only
- * ever looked at `~/.aside/u/0/telegram-bridge/config.json`. A user who
+ * ever looked at `~/.aside/u/0/bridge/config.json`. A user who
  * had just finished setup and ran the documented `npm start` was told no
  * config existed. Both locations are searched now, checkout first.
  */
@@ -118,7 +118,7 @@ describe('config discovery', () => {
     );
     expect(configCandidates()).toEqual([
       path.join(repoRoot, 'config.json'),
-      path.join(os.homedir(), '.aside/u/0/telegram-bridge/config.json'),
+      path.join(os.homedir(), '.aside/u/0/bridge/config.json'),
     ]);
   });
 });
