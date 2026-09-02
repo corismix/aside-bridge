@@ -260,6 +260,25 @@ export class TurnRunner extends EventEmitter {
     return this.queues.get(sessionId)?.queued.length ?? 0;
   }
 
+  /**
+   * Wait for the turn this runner owns to leave a session.
+   *
+   * Used only by the mobile-session bootstrap: the first CLI turn creates
+   * the session, then its runtime configuration must be made phone-safe
+   * before the user's actual request is ever sent. Polling this local queue
+   * is precise here -- it is cleared by the same child-close path that
+   * releases subsequent messages.
+   */
+  async waitForIdle(sessionId: string, timeoutMs = 60_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.isBusy(sessionId)) {
+      if (Date.now() >= deadline) {
+        throw new Error('mobile session bootstrap did not finish in time');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
   /** Accept a turn. Runs now if the session is idle, otherwise queues. */
   send(sessionId: string, request: TurnRequest): { queued: number } {
     const queue = this.queueFor(sessionId);

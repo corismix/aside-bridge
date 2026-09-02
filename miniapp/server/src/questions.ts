@@ -26,6 +26,11 @@
  * Both render through one item type, so the UI is the same either way and
  * only `answerable` differs.
  */
+import {
+  NATIVE_QUESTION_TOOLS,
+  QUESTION_MARKER_CLOSE,
+  QUESTION_MARKER_OPEN,
+} from './preamble.js';
 
 export interface QuestionOption {
   label: string;
@@ -73,10 +78,7 @@ export interface QuestionItem {
 }
 
 /** Tools whose calls are a question rather than a step in the timeline. */
-export const QUESTION_TOOLS = new Set([
-  'ask_user_question',
-  'request_action_confirmation',
-]);
+export const QUESTION_TOOLS = new Set(NATIVE_QUESTION_TOOLS);
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -188,7 +190,14 @@ export function questionsFromToolCall(
  * Python bridge configured must not start rendering its approval requests
  * as plain text just because this app learned a richer format.
  */
-const QUESTION_BLOCK = /\[\[QUESTION\]\]([\s\S]*?)\[\[\/QUESTION\]\]/i;
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const QUESTION_BLOCK = new RegExp(
+  `${escapeRegex(QUESTION_MARKER_OPEN)}([\\s\\S]*?)${escapeRegex(QUESTION_MARKER_CLOSE)}`,
+  'i',
+);
 const APPROVAL_BLOCK = /\[\[APPROVAL\]\]([\s\S]*?)\[\[\/APPROVAL\]\]/i;
 
 export interface MarkerParse {

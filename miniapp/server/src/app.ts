@@ -15,6 +15,7 @@ import {
   EFFORT_LABELS,
   EFFORT_LEVELS,
   EFFORT_MENU,
+  type EffortLevel,
   type MiniappConfig,
 } from './config.js';
 import {
@@ -234,6 +235,52 @@ export async function buildServer(
   );
   const uploadsDir = defaultUploadsDir();
 
+  /**
+   * Start phone-driven work only after its session is safe for a phone.
+   *
+   * A new CLI session inherits `finalConfirm`. If that desktop setting is
+   * on, the user's very first external request can force Aside's native
+   * confirmation tool before the old asynchronous update turns it off;
+   * that tool suspends the session on a desktop-only prompt. Bootstrap with
+   * the preamble alone, wait for that harmless turn to settle, then make the
+   * runtime write before submitting the real request.
+   */
+  async function createMobileSessionAndSend(options: {
+    text: string;
+    model: string;
+    effort: EffortLevel;
+    strictConfirm: boolean;
+    permissionMode?: Parameters<typeof applyPermission>[2]['mode'];
+  }): Promise<{ sessionId: string; queued: number }> {
+    const { sessionId } = await runner.createSession({
+      text: withPreamble('', { strictConfirm: options.strictConfirm }),
+      model: options.model,
+      // The bootstrap has no task to reason through. Keeping it low limits
+      // the unavoidable extra turn without weakening the real request.
+      effort: 'low',
+    });
+    await runner.waitForIdle(sessionId);
+
+    await applyPermission(
+      {
+        facade,
+        readRuntimeConfig: async (sid) =>
+          (await stateDb.read(sid)).runtimeConfig,
+      },
+      sessionId,
+      { mode: options.permissionMode, finalConfirm: false },
+    );
+    stateDb.invalidate(sessionId);
+    softConfirm.set(sessionId, options.strictConfirm);
+
+    const { queued } = runner.send(sessionId, {
+      text: withReminder(options.text, { strictConfirm: options.strictConfirm }),
+      model: options.model,
+      effort: options.effort,
+    });
+    return { sessionId, queued };
+  }
+
   async function replaceMissingSession(
     id: string,
     current: string,
@@ -244,20 +291,15 @@ export async function buildServer(
     stateDb.invalidate(id);
     if ((await stateDb.presence(id)) !== 'missing') return null;
     const stored = settings.read();
-    const { sessionId } = await runner.createSession({
-      text: withPreamble(replacementPrompt(sessionMsgFile(config.sessionsDir, id), current), { strictConfirm }),
+    const mode = stored.defaultPermissionMode ?? undefined;
+    const created = await createMobileSessionAndSend({
+      text: replacementPrompt(sessionMsgFile(config.sessionsDir, id), current),
       model: runner.resolveModel(model),
       effort: runner.resolveEffort(effort),
+      strictConfirm,
+      permissionMode: mode,
     });
-    softConfirm.set(sessionId, strictConfirm);
-    const mode = stored.defaultPermissionMode ?? undefined;
-    void applyPermission({
-      facade,
-      readRuntimeConfig: async (sid) => (await stateDb.read(sid)).runtimeConfig,
-    }, sessionId, { mode, finalConfirm: false })
-      .then(() => stateDb.invalidate(sessionId))
-      .catch(() => undefined);
-    return sessionId;
+    return created.sessionId;
   }
 
   // The catalog USED to be built once, on the assumption that its inputs
@@ -1007,69 +1049,21 @@ export async function buildServer(
           ? body.finalConfirm
           : Boolean(stored.defaultFinalConfirm);
       try {
-        const { sessionId } = await runner.createSession({
-          // The mobile-session preamble rides on the first prompt only.
-          // It is what stops the agent calling `ask_user_question`, which
-          // suspends the session on a question no phone can answer -- see
-          // preamble.ts. It is stripped back out for display.
-          text: withPreamble(
-            promptWithAttachments(text, attachments.map((f) => f.path)),
-            { strictConfirm },
-          ),
+        const created = await createMobileSessionAndSend({
+          text: promptWithAttachments(text, attachments.map((f) => f.path)),
           // An explicit pick from the composer wins; the stored default is
           // only consulted when the client sent nothing.
           model: runner.resolveModel(
             resolveNewSessionModel(stored, body.model),
           ),
           effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
+          strictConfirm,
+          permissionMode: isPermissionMode(body.permissionMode)
+            ? body.permissionMode
+            : (stored.defaultPermissionMode ?? undefined),
         });
-
-        softConfirm.set(sessionId, strictConfirm);
-
-        // A permission choice made on the home composer applies to the
-        // session the send just created. The create-then-update shape is
-        // the same one the Python bridge uses; it binds from the NEXT turn.
-        //
-        // The stored default backs the composer's choice rather than
-        // overriding it, and stays null unless the owner set one -- this
-        // app does not widen permissions on its own. See settings.ts.
-        const mode = isPermissionMode(body.permissionMode)
-          ? body.permissionMode
-          : (stored.defaultPermissionMode ?? undefined);
-        /**
-         * Always OFF, on every session this app creates.
-         *
-         * Not "leave it alone": the account-level default is inherited by
-         * a new session, so an owner who has `finalConfirm` on for their
-         * desktop work gets it on a session started from their phone too
-         * -- and that is a SYSTEM instruction requiring the native
-         * confirmation tool, which outranks the preamble above and bricks
-         * the session the first time the agent touches anything external.
-         * Writing false explicitly is the only way to be sure.
-         *
-         * Residual risk, stated honestly: like every other runtimeConfig
-         * write, this binds on the NEXT `aside exec` spawn. The CLI offers
-         * no flag or environment variable to bind it at create time
-         * (checked against `aside exec --help`), so the very first turn of
-         * a new session still runs under the inherited value. The preamble
-         * is the only cover for that turn -- which is why it names the
-         * tools explicitly rather than just describing the protocol.
-         */
-        void applyPermission(
-          {
-            facade,
-            readRuntimeConfig: async (sid) =>
-              (await stateDb.read(sid)).runtimeConfig,
-          },
-          sessionId,
-          { mode, finalConfirm: false },
-        )
-          .then(() => stateDb.invalidate(sessionId))
-          .catch((err) =>
-            request.log.error({ err }, 'new-session permission apply failed'),
-          );
-
-        return { sessionId, accepted: true, softConfirm: strictConfirm };
+        return { sessionId: created.sessionId, accepted: true, queued: created.queued,
+          softConfirm: strictConfirm };
       } catch (err) {
         request.log.error({ err }, 'new session failed');
         return reply
@@ -1101,14 +1095,15 @@ export async function buildServer(
       }
 
       const strictConfirm = softConfirm.has(id);
-      const prompt = withReminder(
-        promptWithAttachments(text, attachments.map((f) => f.path)),
-        { strictConfirm },
+      const rawPrompt = promptWithAttachments(
+        text,
+        attachments.map((f) => f.path),
       );
+      const prompt = withReminder(rawPrompt, { strictConfirm });
       const model = runner.resolveModel(body.model);
       const effort = runner.resolveEffort(body.effort);
       const replacement = await replaceMissingSession(
-        id, prompt, model, effort, strictConfirm,
+        id, rawPrompt, model, effort, strictConfirm,
       );
       if (replacement) {
         return { accepted: true, queued: 0, busy: runner.isBusy(replacement),
@@ -1205,11 +1200,12 @@ export async function buildServer(
       }
 
       const strictConfirm = softConfirm.has(id);
-      const prompt = withReminder(answerMessage(header, label), { strictConfirm });
+      const rawPrompt = answerMessage(header, label);
+      const prompt = withReminder(rawPrompt, { strictConfirm });
       const model = runner.resolveModel(body.model);
       const effort = runner.resolveEffort(body.effort);
       const replacement = await replaceMissingSession(
-        id, prompt, model, effort, strictConfirm,
+        id, rawPrompt, model, effort, strictConfirm,
       );
       if (replacement) {
         return { accepted: true, queued: 0, busy: runner.isBusy(replacement),
@@ -1286,33 +1282,17 @@ export async function buildServer(
       });
 
       try {
-        const { sessionId } = await runner.createSession({
-          text: withPreamble(seed, { strictConfirm }),
+        const created = await createMobileSessionAndSend({
+          text: seed,
           model: runner.resolveModel(
             resolveNewSessionModel(stored, body.model),
           ),
           effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
+          strictConfirm,
+          permissionMode: stored.defaultPermissionMode ?? undefined,
         });
-        softConfirm.set(sessionId, strictConfirm);
-        // Same reasoning as the create route: never inherit the account's
-        // native final-confirm onto a session driven from a phone.
-        void applyPermission(
-          {
-            facade,
-            readRuntimeConfig: async (sid) =>
-              (await stateDb.read(sid)).runtimeConfig,
-          },
-          sessionId,
-          {
-            mode: stored.defaultPermissionMode ?? undefined,
-            finalConfirm: false,
-          },
-        )
-          .then(() => stateDb.invalidate(sessionId))
-          .catch((err) =>
-            request.log.error({ err }, 'recovery permission apply failed'),
-          );
-        return { sessionId, accepted: true, from: id };
+        return { sessionId: created.sessionId, accepted: true, queued: created.queued,
+          from: id };
       } catch (err) {
         request.log.error({ err }, 'recovery session failed');
         return reply

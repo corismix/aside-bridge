@@ -84,11 +84,10 @@ for style in ("casual", "formal"):
     # the marker phrases even when their prose differs in tone.
     check("%s: persona keeps the [[APPROVAL]] protocol" % style,
           "[[APPROVAL]]" in persona and "[[/APPROVAL]]" in persona)
-    check("%s: tag names both native tools" % style,
-          "ask_user_question" in preset["tag"]
-          and "request_action_confirmation" in preset["tag"])
-    check("%s: tag keeps the approval markers" % style,
-          "[[APPROVAL]]" in preset["tag"])
+    check("%s: compact tag keeps only presentation style" % style,
+          "Style reminder:" in preset["tag"]
+          and "ask_user_question" not in preset["tag"]
+          and "[[APPROVAL]]" not in preset["tag"])
     # The example JSON has to survive the persona's own .format pass.
     check("%s: the example block is parsable JSON" % style,
           json.loads(persona.split("[[QUESTION]]")[1]
@@ -96,20 +95,17 @@ for style in ("casual", "formal"):
 
 # ---- 2. the per-message reminder -----------------------------------
 print("\nfollow-up reminder")
-check("reminder names both native tools",
-      "ask_user_question" in b.QUESTION_REMINDER
-      and "request_action_confirmation" in b.QUESTION_REMINDER)
+check("policy names both native tools",
+      b.NATIVE_QUESTION_TOOLS == (
+          "ask_user_question", "request_action_confirmation"))
+check("reminder is loaded from the shared policy",
+      b.QUESTION_REMINDER.strip() == b.MOBILE_POLICY["followUpReminder"])
 check("reminder points at the [[QUESTION]] block",
       "[[QUESTION]]" in b.QUESTION_REMINDER)
-# Byte-identical to MOBILE_FOLLOWUP_REMINDER in the Mini App, which strips
-# exactly this string out of the user's bubbles and session titles.
-MINIAPP_REMINDER = (
-    "[Reminder: mobile session -- never call ask_user_question or "
-    "request_action_confirmation; ask with a [[QUESTION]] {json} "
-    "[[/QUESTION]] block and end the turn.]"
-)
-check("reminder matches the Mini App's, byte for byte",
-      b.QUESTION_REMINDER.strip() == MINIAPP_REMINDER)
+check("question example is loaded from the shared policy",
+      json.loads(b.QUESTION_FORMAT.split(b.QUESTION_OPEN)[1]
+                 .split(b.QUESTION_CLOSE)[0].strip())
+      == b.MOBILE_POLICY["questionExample"])
 check("reminder is one line of prompt, not a second preamble",
       len(b.QUESTION_REMINDER) < 220)
 
@@ -315,7 +311,7 @@ check("strip: the Mini App preamble comes off the front",
 check("strip: the reminder comes off the back",
       b.strip_agent_directives("check the deploy" + b.QUESTION_REMINDER)
       == "check the deploy")
-check("strip: the bridge note still comes off",
+check("strip: the compact style reminder comes off",
       b.strip_agent_directives("hello" + b.STYLE_TAG + b.QUESTION_REMINDER)
       == "hello")
 check("strip: ordinary text is untouched",

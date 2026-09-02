@@ -88,15 +88,13 @@ and silently rewriting the settings of the owner's desktop work is worse
 than the risk. The per-message reminder still rides on every turn sent into
 it, which is the cover.
 
-**Residual risk, stated plainly.** Like every `runtimeConfig` write, this
-binds on the **next** `aside exec` spawn. `aside exec` offers no flag and
-no environment variable that would bind it at create time — its whole
-option set is `--session`, `--account`, `-m/--model`, `-p/--provider`,
-`-s/--speed`, `--effort`. So a brand new session's **first turn** still
-runs under the inherited value. The preamble is the only cover for that one
-turn, which is why it names both tools explicitly rather than merely
-describing the protocol. If Aside ever grows a way to set runtime config at
-create time, that is where to close this.
+**Bootstrap ordering.** `runtimeConfig` still only binds on the next `aside
+exec` spawn, and the CLI has no create-time flag for it. The Mini App now
+uses an intentionally empty, low-effort bootstrap turn carrying only the
+mobile preamble; it waits for that turn to finish, writes
+`finalConfirm: false`, then submits the user's real request as the next
+turn. That removes the inherited-final-confirm race instead of treating the
+preamble as its only cover.
 
 ## Gap 3 — compaction eats the instruction
 
@@ -120,7 +118,11 @@ strips cleanly when it is read in the Mini App.
 
 Every-message rather than every-Nth on purpose: a throttle saves a few
 dozen tokens a turn and pays for it with a failure mode that only appears
-on exactly the long sessions the throttle was meant to help.
+on exactly the long sessions the throttle was meant to help. The marker,
+native-tool names, example JSON and base reminder live in
+`miniapp/server/src/mobile-policy.json`, which both the Python bridge and
+the Mini App consume; only the Python bridge's small presentation-style
+reminder remains transport-specific.
 
 It is **appended**, not prepended, so:
 

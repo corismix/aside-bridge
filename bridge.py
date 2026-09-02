@@ -24,6 +24,8 @@ CONFIG_PATH = os.path.join(BRIDGE_DIR, "config.json")
 STATE_PATH = os.path.join(BRIDGE_DIR, "state.json")
 LOG_PATH = os.path.join(BRIDGE_DIR, "bridge.log")
 MEDIA_DIR = os.path.join(BRIDGE_DIR, "media")
+MOBILE_POLICY_PATH = os.path.join(
+    BRIDGE_DIR, "miniapp", "server", "src", "mobile-policy.json")
 
 TG_LIMIT = 4000  # telegram hard cap is 4096
 
@@ -47,13 +49,41 @@ TG_LIMIT = 4000  # telegram hard cap is 4096
 # started by texting the bot renders identically in the Mini App.
 # [[APPROVAL]] is unchanged and still the right block for a plain
 # yes/no on an action.
-QUESTION_FORMAT = (
-    '[[QUESTION]]\n'
-    '{"questions":[{"header":"Short heading",'
-    '"question":"What you need to know","options":'
-    '[{"label":"Option A","description":"What this means"},'
-    '{"label":"Option B","description":"What this means"}]}]}\n'
-    '[[/QUESTION]]'
+def load_mobile_policy():
+    """Read the protocol shared by the Telegram bridge and Mini App.
+
+    This is deliberately a checked-in source file rather than duplicated
+    strings. A mismatch here can strand a phone-driven session, so a missing
+    or malformed policy is a startup error instead of a quiet fallback.
+    """
+    try:
+        with open(MOBILE_POLICY_PATH, encoding="utf-8") as f:
+            policy = json.load(f)
+        tools = policy["nativeQuestionTools"]
+        marker = policy["questionMarker"]
+        reminder = policy["followUpReminder"]
+        example = policy["questionExample"]
+        if (not isinstance(tools, list) or len(tools) != 2 or
+                not all(isinstance(tool, str) and tool for tool in tools) or
+                not isinstance(marker, dict) or
+                not isinstance(marker.get("open"), str) or
+                not isinstance(marker.get("close"), str) or
+                not isinstance(reminder, str) or not reminder or
+                not isinstance(example, dict)):
+            raise ValueError("invalid mobile policy")
+        return policy
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit("mobile policy unavailable: %s" % e)
+
+
+MOBILE_POLICY = load_mobile_policy()
+NATIVE_QUESTION_TOOLS = tuple(MOBILE_POLICY["nativeQuestionTools"])
+QUESTION_OPEN = MOBILE_POLICY["questionMarker"]["open"]
+QUESTION_CLOSE = MOBILE_POLICY["questionMarker"]["close"]
+QUESTION_FORMAT = "%s\n%s\n%s" % (
+    QUESTION_OPEN,
+    json.dumps(MOBILE_POLICY["questionExample"], separators=(",", ":")),
+    QUESTION_CLOSE,
 )
 
 
@@ -112,11 +142,7 @@ QUESTION_PROTOCOL_FORMAL = (
 # out of the user's own bubbles and session titles, and a session started
 # by texting the bot is read there too. It is separate from STYLE_TAG
 # because that one is overridable from config.json, and this must not be.
-QUESTION_REMINDER = (
-    "\n\n[Reminder: mobile session -- never call ask_user_question or "
-    "request_action_confirmation; ask with a [[QUESTION]] {json} "
-    "[[/QUESTION]] block and end the turn.]"
-)
+QUESTION_REMINDER = "\n\n" + MOBILE_POLICY["followUpReminder"]
 
 # style presets -- pick with config.json's "style" key ("formal" default,
 # or "casual"). either can be fully overridden with explicit
@@ -155,15 +181,8 @@ STYLE_PRESETS = {
             "sound good? one line ack."
         ),
         "tag": (
-            "\n\n[bridge note: telegram thread. texting style, plain "
-            "text only, short bubbles split by blank lines. for any "
-            "irreversible/external action, don't act yet: post an "
-            "approval request as your final message using exactly "
-            "[[APPROVAL]] / Action: / Details: / [[/APPROVAL]], then "
-            "wait for my approve or deny. never call ask_user_question "
-            "or request_action_confirmation -- they hang the session on "
-            "a prompt my phone can't answer; ask with a [[QUESTION]] "
-            "{json} [[/QUESTION]] block and end the turn]"
+            "\n\n[Style reminder: lowercase, concise, casual text "
+            "bubbles; no Markdown.]"
         ),
     },
     "formal": {
@@ -200,16 +219,8 @@ STYLE_PRESETS = {
             "Understood? Please confirm briefly."
         ),
         "tag": (
-            "\n\n[bridge note: Telegram thread. Professional tone, "
-            "plain text only, short message bubbles split by blank "
-            "lines. For any irreversible/external action, do not act "
-            "yet: post an approval request as your final message using "
-            "exactly [[APPROVAL]] / Action: / Details: / [[/APPROVAL]], "
-            "then wait for my Approve or Deny. Never call "
-            "ask_user_question or request_action_confirmation -- they "
-            "hang the session on a prompt my phone cannot answer; ask "
-            "with a [[QUESTION]] {json} [[/QUESTION]] block and end the "
-            "turn.]"
+            "\n\n[Style reminder: concise, professional text bubbles; "
+            "no Markdown.]"
         ),
     },
 }
@@ -915,6 +926,8 @@ def strip_agent_directives(text):
     """Remove everything a transport added to a prompt for the agent."""
     out = MINIAPP_PREAMBLE_RE.sub("", text or "")
     out = REMINDER_RE.sub("", out)
+    if STYLE_TAG:
+        out = re.sub(re.escape(STYLE_TAG) + r"\s*$", "", out)
     idx = out.lower().find("[bridge note")
     if idx > 0:
         out = out[:idx]
