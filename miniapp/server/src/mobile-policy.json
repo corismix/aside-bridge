@@ -1,0 +1,23 @@
+{
+  "nativeQuestionTools": [
+    "ask_user_question",
+    "request_action_confirmation"
+  ],
+  "questionMarker": {
+    "open": "[[QUESTION]]",
+    "close": "[[/QUESTION]]"
+  },
+  "questionExample": {
+    "questions": [
+      {
+        "header": "Short heading",
+        "question": "What you need to know",
+        "options": [
+          { "label": "Option A", "description": "What this means" },
+          { "label": "Option B", "description": "What this means" }
+        ]
+      }
+    ]
+  },
+  "followUpReminder": "[Reminder: mobile session -- never call ask_user_question or request_action_confirmation; ask with a [[QUESTION]] {json} [[/QUESTION]] block and end the turn.]"
+}

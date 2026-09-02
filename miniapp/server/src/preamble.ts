@@ -24,9 +24,13 @@
  * Kept short on purpose: it rides on every new session's first prompt and
  * competes with the user's actual message for the model's attention.
  */
+import mobilePolicy from './mobile-policy.json' with { type: 'json' };
 
-export const QUESTION_MARKER_OPEN = '[[QUESTION]]';
-export const QUESTION_MARKER_CLOSE = '[[/QUESTION]]';
+/** Shared with bridge.py via mobile-policy.json. */
+export const NATIVE_QUESTION_TOOLS = mobilePolicy.nativeQuestionTools;
+export const QUESTION_MARKER_OPEN = mobilePolicy.questionMarker.open;
+export const QUESTION_MARKER_CLOSE = mobilePolicy.questionMarker.close;
+export const QUESTION_EXAMPLE = JSON.stringify(mobilePolicy.questionExample);
 
 /**
  * Options both the preamble and the follow-up reminder take.
@@ -72,9 +76,7 @@ const PREAMBLE_HEAD = [
   'END of your turn, and do not act until the reply arrives:',
   '',
   `${QUESTION_MARKER_OPEN}`,
-  '{"questions":[{"header":"Short heading","question":"What you need to know",',
-  '"options":[{"label":"Option A","description":"What this means"},',
-  '{"label":"Option B","description":"What this means"}]}]}',
+  QUESTION_EXAMPLE,
   `${QUESTION_MARKER_CLOSE}`,
 ].join('\n');
 
@@ -128,10 +130,7 @@ export function withPreamble(text: string, options: PreambleOptions = {}): strin
  * first thing a dash-sensitive argv parser sees -- see `PROMPT_TERMINATOR`
  * in exec.ts.
  */
-export const MOBILE_FOLLOWUP_REMINDER =
-  '[Reminder: mobile session -- never call ask_user_question or ' +
-  'request_action_confirmation; ask with a [[QUESTION]] {json} ' +
-  '[[/QUESTION]] block and end the turn.]';
+export const MOBILE_FOLLOWUP_REMINDER = mobilePolicy.followUpReminder;
 
 /** The same line, with the confirm-before-acting clause. */
 export const STRICT_FOLLOWUP_REMINDER =

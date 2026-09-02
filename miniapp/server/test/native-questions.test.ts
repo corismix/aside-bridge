@@ -18,6 +18,8 @@ import { mintToken } from '../src/auth.js';
 import {
   MOBILE_FOLLOWUP_REMINDER,
   MOBILE_SESSION_PREAMBLE,
+  NATIVE_QUESTION_TOOLS,
+  QUESTION_EXAMPLE,
   STRICT_CONFIRM_LINE,
   STRICT_FOLLOWUP_REMINDER,
   buildPreamble,
@@ -57,6 +59,16 @@ describe('the preamble in both of its forms', () => {
       .split('[[/QUESTION]]')[0]
       .trim();
     expect(() => JSON.parse(json)).not.toThrow();
+  });
+
+  it('uses the shared policy for tools and the question schema', () => {
+    expect(NATIVE_QUESTION_TOOLS).toEqual([
+      'ask_user_question',
+      'request_action_confirmation',
+    ]);
+    expect(JSON.parse(QUESTION_EXAMPLE)).toMatchObject({
+      questions: [{ question: 'What you need to know' }],
+    });
   });
 
   it('adds the confirm-before-acting line only when asked', () => {
@@ -448,6 +460,26 @@ describe('gap 2: the confirm toggle never arms the native tool', () => {
     expect(update).not.toContain('"finalConfirm":true');
   });
 
+  it('bootstraps, secures, then sends the real request in that order', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/new',
+      headers: auth(),
+      payload: { text: 'send the project update', finalConfirm: true },
+    });
+    expect(res.statusCode).toBe(200);
+    const args = await recordedArgs('send the project update');
+    const bootstrap = args.findIndex((arg) =>
+      arg.includes('[Aside Mini App session. You are running for a user on their phone.'),
+    );
+    const permission = args.findIndex((arg) => arg.includes('aside.sessions.update'));
+    const realPrompt = args.findIndex((arg) => arg.includes('send the project update'));
+    expect(bootstrap).toBeGreaterThanOrEqual(0);
+    expect(permission).toBeGreaterThan(bootstrap);
+    expect(realPrompt).toBeGreaterThan(permission);
+    expect(args[realPrompt]).toContain(STRICT_FOLLOWUP_REMINDER);
+  });
+
   it('puts the strict line in the preamble instead', async () => {
     await app.inject({
       method: 'POST',
@@ -455,9 +487,9 @@ describe('gap 2: the confirm toggle never arms the native tool', () => {
       headers: auth(),
       payload: { text: 'book me a table', finalConfirm: true },
     });
-    const args = await recordedArgs('book me a table');
-    const prompt = args.find((a) => a.includes('book me a table'))!;
-    expect(prompt).toContain(STRICT_CONFIRM_LINE);
+    const args = await recordedArgs('[Aside Mini App session.');
+    const bootstrap = args.find((a) => a.includes('[Aside Mini App session.'))!;
+    expect(bootstrap).toContain(STRICT_CONFIRM_LINE);
   });
 
   it('leaves the default preamble alone when the switch is off', async () => {

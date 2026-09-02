@@ -196,13 +196,12 @@ Read these before deciding something is broken.
   knowing what was asked, what you picked, and what the stuck session was
   originally for. The stuck session stays as it is; nothing can unstick it.
 
-  **Residual risk.** A new session's `runtimeConfig` — including the
-  final-confirm flag — only binds on the *next* `aside exec` spawn, and
-  `aside exec` has no flag or environment variable that would bind it at
-  create time. So the very first turn of a brand new session still runs
-  under whatever your account default was, and the preamble is the only
-  cover for that one turn. [docs/NATIVE-QUESTIONS.md](NATIVE-QUESTIONS.md)
-  has the whole picture.
+  New mobile sessions run a harmless low-effort bootstrap containing only
+  the mobile preamble, wait for it to finish, explicitly clear the native
+  final-confirm flag, and only then send the user's request. That prevents
+  an inherited desktop setting from forcing an unanswerable native tool on
+  the first real turn. [docs/NATIVE-QUESTIONS.md](NATIVE-QUESTIONS.md) has
+  the whole picture.
 - **The "Confirm before acting" switch is not Aside's `finalConfirm`.**
   On a session driven from a phone it cannot be: the daemon's flag mandates
   `request_action_confirmation`, which is precisely the tool that suspends
