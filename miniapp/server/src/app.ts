@@ -40,6 +40,11 @@ import {
   recoveryPrompt,
 } from './questions.js';
 import { ThreadStore, buildParentView, fileStamp } from './threadstore.js';
+import {
+  listAsideProjects,
+  findProject,
+  projectContextBlock,
+} from './projects.js';
 import { SubagentIndex, toChildSession } from './subagents.js';
 import {
   MAX_ARTIFACT_BYTES,
@@ -251,9 +256,29 @@ export async function buildServer(
     effort: EffortLevel;
     strictConfirm: boolean;
     permissionMode?: Parameters<typeof applyPermission>[2]['mode'];
+    /**
+     * Optional Aside project for prompt-level project sessions. See
+     * projects.ts for why the CLI cannot anchor the session row itself.
+     */
+    projectId?: string;
   }): Promise<{ sessionId: string; queued: number }> {
+    // Resolved before the session exists so a bad id fails fast instead of
+    // spawning a session that quietly dropped its project context.
+    const projectBlock = options.projectId
+      ? await (async () => {
+          const pr = await findProject(config.asideCli, options.projectId!);
+          if (!pr) {
+            console.warn(
+              '[projects] not found: %s; continuing without project context',
+              options.projectId,
+            );
+            return '';
+          }
+          return projectContextBlock(pr);
+        })()
+      : '';
     const { sessionId } = await runner.createSession({
-      text: withPreamble('', { strictConfirm: options.strictConfirm }),
+      text: withPreamble(projectBlock, { strictConfirm: options.strictConfirm }),
       model: options.model,
       // The bootstrap has no task to reason through. Keeping it low limits
       // the unavoidable extra turn without weakening the real request.
@@ -1021,6 +1046,15 @@ export async function buildServer(
     async (request, reply) => uploadReply(request, reply),
   );
 
+  app.get(
+    '/api/projects',
+    { preHandler: requireAuth },
+    async () => {
+      const projects = await listAsideProjects(config.asideCli);
+      return { projects };
+    },
+  );
+
   app.post(
     '/api/sessions/new',
     { preHandler: requireAuth },
@@ -1061,6 +1095,10 @@ export async function buildServer(
           permissionMode: isPermissionMode(body.permissionMode)
             ? body.permissionMode
             : (stored.defaultPermissionMode ?? undefined),
+          projectId:
+            typeof body.projectId === 'string' && body.projectId.trim()
+              ? body.projectId.trim()
+              : undefined,
         });
         return { sessionId: created.sessionId, accepted: true, queued: created.queued,
           softConfirm: strictConfirm };
