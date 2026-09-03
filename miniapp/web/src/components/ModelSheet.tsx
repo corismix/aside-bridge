@@ -1,17 +1,17 @@
 /**
- * Model and reasoning, in one sheet.
+ * The model sheet -- and, separate from it, the reasoning sheet.
  *
- * This replaces the anchored popover, and it takes reasoning with it. The
- * old arrangement put a model pill AND an effort pill in the composer's
- * action row, which on a 390px phone left the model about 85px -- enough
- * for "DeepSee…", which names nothing. Claude's own app solves it by
- * nesting Effort inside the model sheet as a row, so the composer carries
- * a single pill. That is the shape here: one pill, one sheet, reasoning a
- * tap deeper.
+ * Aside's composer carries TWO pills that open TWO menus: the model
+ * selector and the thinking-level selector. The Mini App used to merge
+ * reasoning into the model sheet as a nested view (a phone-width
+ * compromise from before the Aside-style meta row existed); now that the
+ * composer has Aside's pill row, each pill opens its own surface, exactly
+ * as the sidepanel does. `ReasoningSheet` is that second surface.
  *
- * Four views, one component, because they are one decision. `back` is
- * always to the model list rather than a history stack: there is nowhere
- * else to come from.
+ * Four concerns in ModelSheet collapsed to three views once reasoning
+ * moved out: the provider's models, search across every provider, and the
+ * drilled provider list. `back` is always to the model list rather than a
+ * history stack: there is nowhere else to come from.
  */
 import { useMemo, useState } from 'react';
 import { Sheet } from './Sheet';
@@ -39,15 +39,19 @@ export interface ModelSheetProps {
   catalog: CatalogProvider[];
   currentProvider: string;
   currentModel: string;
-  effortOptions: Array<{ id: string; label: string }>;
-  currentEffort: string;
   onPickModel: (provider: string, modelId: string) => void;
-  onPickEffort: (id: string) => void;
   onOpenSettings?: () => void;
   onClose: () => void;
 }
 
-type View = 'models' | 'effort' | 'providers';
+export interface ReasoningSheetProps {
+  options: Array<{ id: string; label: string }>;
+  current: string;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}
+
+type View = 'models' | 'providers';
 
 /** One tappable row in a grouped card. */
 function Row({
@@ -87,10 +91,7 @@ export function ModelSheet({
   catalog,
   currentProvider,
   currentModel,
-  effortOptions,
-  currentEffort,
   onPickModel,
-  onPickEffort,
   onOpenSettings,
   onClose,
 }: ModelSheetProps) {
@@ -131,40 +132,6 @@ export function ModelSheet({
     onPickModel(provider, modelId);
     onClose();
   };
-
-  const effortLabel =
-    effortOptions.find((o) => o.id === currentEffort)?.label || currentEffort;
-
-  // --- reasoning -----------------------------------------------------
-  if (view === 'effort') {
-    return (
-      <Sheet side="bottom" title="Reasoning" onClose={onClose}>
-        <button
-          type="button"
-          className="sheet-back"
-          onClick={() => setView('models')}
-        >
-          <ChevronLeft size={15} strokeWidth={2} /> Model
-        </button>
-        <div className="sheet-group">
-          {effortOptions.map((option) => (
-            <Row
-              key={option.id}
-              title={option.label}
-              selected={option.id === currentEffort}
-              trailing={
-                option.id === currentEffort ? <Check size={17} /> : null
-              }
-              onClick={() => {
-                onPickEffort(option.id);
-                setView('models');
-              }}
-            />
-          ))}
-        </div>
-      </Sheet>
-    );
-  }
 
   // --- every provider ------------------------------------------------
   if (view === 'providers') {
@@ -297,13 +264,6 @@ export function ModelSheet({
 
       <div className="sheet-group">
         <Row
-          title="Reasoning"
-          subtitle={effortLabel}
-          leading={<span className="sheet-dot-glyph" aria-hidden />}
-          trailing={<ChevronRight size={16} />}
-          onClick={() => setView('effort')}
-        />
-        <Row
           title="More models"
           subtitle={`${catalog.length} provider${catalog.length === 1 ? '' : 's'}`}
           leading={<span className="sheet-dots-glyph" aria-hidden />}
@@ -322,6 +282,38 @@ export function ModelSheet({
             onClick={onOpenSettings}
           />
         ) : null}
+      </div>
+    </Sheet>
+  );
+}
+
+/**
+ * The reasoning picker, as its own surface -- the composer's effort pill
+ * opens THIS, not the model sheet, matching the sidepanel's separate
+ * thinking-level menu. Bounded set (Low..Ultrabrowse), one tap to pick
+ * and the sheet closes.
+ */
+export function ReasoningSheet({
+  options,
+  current,
+  onPick,
+  onClose,
+}: ReasoningSheetProps) {
+  return (
+    <Sheet side="bottom" title="Reasoning" onClose={onClose}>
+      <div className="sheet-group">
+        {options.map((option) => (
+          <Row
+            key={option.id}
+            title={option.label}
+            selected={option.id === current}
+            trailing={option.id === current ? <Check size={17} /> : null}
+            onClick={() => {
+              onPick(option.id);
+              onClose();
+            }}
+          />
+        ))}
       </div>
     </Sheet>
   );
