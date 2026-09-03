@@ -17,8 +17,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run unittest suite
-        run: python -m unittest discover -s tests
+      # bridge.py exits at import without a config.json; the example
+      # config is enough for the offline harnesses.
+      - name: Seed config.json
+        run: cp config.example.json config.json
+      # tests/ holds standalone scripts, not unittest modules; run each
+      # directly. test_approval_e2e shells out to the real Aside CLI and
+      # only works on a macOS install, so it stays manual.
+      - name: Run offline test harnesses
+        run: |
+          set -e
+          for f in tests/test_*.py; do
+            if [ "$f" = "tests/test_approval_e2e.py" ]; then
+              echo "skip $f (requires a live Aside CLI on macOS)"
+              continue
+            fi
+            echo "== $f"
+            python3 "$f"
+          done
 
   miniapp:
     name: Mini App (typecheck, tests, build)
