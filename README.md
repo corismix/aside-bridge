@@ -85,6 +85,9 @@ aside: Drafted a reply. Want to see it before I send?
 | `/usage` | Claude subscription usage + context-window fill + cost |
 | `/new` | fresh persona-primed session (full access, native confirm off) |
 | `/sessions` | list recent Aside sessions, tap a button to switch into one |
+| `/project` | list Aside projects with the current one marked (instant) |
+| `/project <n or id>` | select a project; spins up a fresh session seeded with the project's workspace path and its AGENTS.md / MEMORY.md (prompt-level: the CLI cannot anchor a session row to a project) |
+| `/project off` | clear the project and return to a fresh default session |
 
 ## The Mini App
 
