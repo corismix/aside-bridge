@@ -69,6 +69,25 @@ export function OpenAIMark({ size = 16, className }: MarkProps) {
   );
 }
 
+/**
+ * OpenCode's mark, for the `opencode` provider (MuseSpark via OpenCode Zen).
+ * Traced from Aside's own `opencode-*.js` icon chunk: a nested square frame
+ * with a half-tone inner block.
+ */
+export function OpenCodeMark({ size = 16, className }: MarkProps) {
+  return (
+    <svg {...svgProps(size, className)} viewBox="0 0 24 24">
+      <path opacity={0.4} d="M16 10V18H8V10H16Z" fill="currentColor" />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M20 22H4V2H20V22ZM16 6H8V18H16V6Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 /** Claude's starburst, for the `claude-code` provider. */
 export function ClaudeMark({ size = 16, className }: MarkProps) {
   return (
@@ -206,6 +225,8 @@ const PROVIDER_MARKS: Record<
   xai: XaiMark,
   'xai-grok-oauth': GrokMark,
   grok: GrokMark,
+  opencode: OpenCodeMark,
+  'opencode-zen': OpenCodeMark,
 };
 
 /** The mark for a provider id, at whatever size the caller needs. */

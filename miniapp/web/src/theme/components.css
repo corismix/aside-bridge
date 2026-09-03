@@ -1114,7 +1114,9 @@
 }
 
 /* Ultrabrowse is rainbow text in Aside's own Reasoning menu. */
-.popover-row.is-ultrabrowse .popover-row-label {
+.popover-row.is-ultrabrowse .popover-row-label,
+.sheet-row.is-ultrabrowse .sheet-row-title,
+.pill.is-ultrabrowse .pill-label {
   background: linear-gradient(
     100deg,
     var(--ultrabrowse-red),

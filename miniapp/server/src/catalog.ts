@@ -80,6 +80,15 @@ const BUILTIN: ProviderSeed[] = [
     ],
   },
   {
+    // MuseSpark through OpenCode Zen. Aside's own chat shows the model
+    // as "Muse Spark 1.3 Free"; the raw credential id is much noisier.
+    id: 'opencode',
+    label: 'OpenCode',
+    models: [
+      { id: 'muse-spark-1.3-contributor-free', label: 'Muse Spark 1.3 Free' },
+    ],
+  },
+  {
     id: 'xai-grok-oauth',
     label: 'Grok',
     models: [

@@ -60,6 +60,7 @@ function Row({
   leading,
   trailing,
   selected,
+  className = '',
   onClick,
 }: {
   title: string;
@@ -67,12 +68,13 @@ function Row({
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
   selected?: boolean;
+  className?: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`sheet-row ${selected ? 'is-selected' : ''}`}
+      className={`sheet-row ${className} ${selected ? 'is-selected' : ''}`}
       onClick={onClick}
     >
       {leading ? <span className="sheet-row-glyph">{leading}</span> : null}
@@ -306,6 +308,7 @@ export function ReasoningSheet({
           <Row
             key={option.id}
             title={option.label}
+            className={option.id === 'ultrabrowse' ? 'is-ultrabrowse' : ''}
             selected={option.id === current}
             trailing={option.id === current ? <Check size={17} /> : null}
             onClick={() => {

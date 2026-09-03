@@ -121,6 +121,24 @@ describe('buildCatalog', () => {
   });
 });
 
+describe('the opencode seed', () => {
+  // MuseSpark via OpenCode Zen used to surface as a bare credential id
+  // with a raw model id, the one provider Aside's own chat names properly.
+  const catalog = buildCatalog(['opencode']);
+  const provider = catalog.find((p) => p.id === 'opencode');
+
+  it('shows the OpenCode display name', () => {
+    expect(provider?.label).toBe('OpenCode');
+    expect(provider?.connected).toBe(true);
+  });
+
+  it('names Muse Spark the way Aside does', () => {
+    expect(modelLabel(catalog, 'opencode', 'muse-spark-1.3-contributor-free')).toBe(
+      'Muse Spark 1.3 Free',
+    );
+  });
+});
+
 describe('modelLabel', () => {
   const catalog = buildCatalog(['claude-code']);
 

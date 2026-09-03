@@ -417,7 +417,7 @@ export function Composer({
             mark={pills.provider}
           />
           <Pill
-            className="pill-effort"
+            className={`pill-effort ${pills.effortId === 'ultrabrowse' ? 'is-ultrabrowse' : ''}`}
             label={pills.effortLabel}
             onOpen={onOpenEffort}
           />
