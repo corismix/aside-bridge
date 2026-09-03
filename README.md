@@ -96,6 +96,13 @@ the full Aside UI, inside Telegram, on the phone you already have out.
 
 https://github.com/user-attachments/assets/d119cb77-8860-463e-87b5-88b98212fc29
 
+New sessions can also start inside an Aside project: the home composer
+carries a Project pill (tap it to pick from `/api/projects`, backed by
+`aside.projects.list()`). Like the chat's `/project` command, this is
+prompt-level -- the CLI cannot anchor a session row to a project -- so the
+fresh session is seeded with the project's workspace path plus its
+AGENTS.md / MEMORY.md.
+
 | Home | Recents | Model &amp; reasoning |
 |:---:|:---:|:---:|
 | <img src="docs/screenshots/home.jpg" alt="The mini app home screen: a greeting and the composer, with history one swipe below" width="240"/> | <img src="docs/screenshots/history.jpg" alt="The session list, showing recent Aside chats with timestamps" width="240"/> | <img src="docs/screenshots/models.jpg" alt="The model sheet, listing whatever providers and models the desktop app has configured" width="240"/> |

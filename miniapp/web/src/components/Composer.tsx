@@ -55,6 +55,12 @@ export interface ComposerProps {
   pills: PillState;
   onOpenModel: (anchor: HTMLElement) => void;
   onOpenPermission: (anchor: HTMLElement) => void;
+  /**
+   * Project picker, home composer only: project choice applies to the
+   * NEXT session, which is a home-composer decision.
+   */
+  projectLabel?: string;
+  onOpenProject?: (anchor: HTMLElement) => void;
   /** Chosen mode, for the badge's tint. Null when unknown. */
   permissionMode: string | null;
   attachments: ComposerAttachment[];
@@ -198,6 +204,8 @@ export function Composer({
   pills,
   onOpenModel,
   onOpenPermission,
+  projectLabel,
+  onOpenProject,
   permissionMode,
   attachments,
   onAddFiles,
@@ -339,6 +347,13 @@ export function Composer({
           onOpen={onOpenModel}
           mark={pills.provider}
         />
+        {onOpenProject ? (
+          <Pill
+            className="pill-project"
+            label={projectLabel || 'Project'}
+            onOpen={onOpenProject}
+          />
+        ) : null}
         <span className="composer-spacer" />
 
         {/*

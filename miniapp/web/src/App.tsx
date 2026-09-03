@@ -13,6 +13,8 @@ import { Thread } from './components/Thread';
 import { Composer } from './components/Composer';
 import { PermissionPicker } from './components/Pickers';
 import { ModelSheet } from './components/ModelSheet';
+import { ProjectSheet } from './components/ProjectSheet';
+import type { AsideProject } from './types';
 import { CitationSheet } from './components/Citations';
 import { SessionPanel } from './components/SessionPanel';
 import { SettingsScreen } from './components/SettingsScreen';
@@ -57,9 +59,11 @@ type AuthState =
 type PickerState =
   | { kind: 'none' }
   | { kind: 'model'; anchor: HTMLElement }
-  | { kind: 'permission'; anchor: HTMLElement };
+  | { kind: 'permission'; anchor: HTMLElement }
+  | { kind: 'project'; anchor: HTMLElement };
 
 const PROVIDER_KEY = 'miniapp.provider';
+const PROJECT_KEY = 'miniapp.project';
 const MODEL_KEY = 'miniapp.model';
 const EFFORT_KEY = 'miniapp.effort';
 
@@ -124,6 +128,25 @@ export default function App() {
   const [effort, setEffort] = useState(
     () => localStorage.getItem(EFFORT_KEY) || '',
   );
+
+  // The project a NEW session should start inside, prompt-level (the CLI
+  // cannot anchor a session row to a project -- see server/src/projects.ts).
+  // Empty string means "no project", and the choice sticks across launches.
+  const [projectId, setProjectId] = useState(
+    () => localStorage.getItem(PROJECT_KEY) || '',
+  );
+  const [projectLabel, setProjectLabel] = useState(() => {
+    // The label is only decoration; the id is the contract. If the stored
+    // project has since been deleted the pill still reads sanely.
+    try {
+      return (
+        JSON.parse(localStorage.getItem(PROJECT_KEY + '.label') || '') || ''
+      );
+    } catch {
+      return '';
+    }
+  });
+  const [projects, setProjects] = useState<AsideProject[]>([]);
 
   /**
    * The permission a NEW session should get.
@@ -303,6 +326,7 @@ export default function App() {
         attachments: files,
         permissionMode: newMode ?? undefined,
         finalConfirm: newFinalConfirm ?? undefined,
+        projectId: projectId || undefined,
       });
       setDraft('');
       attachments.clear();
@@ -341,6 +365,23 @@ export default function App() {
   };
   const openPermission = (anchor: HTMLElement) =>
     setPicker({ kind: 'permission', anchor });
+  const openProject = (anchor: HTMLElement) => {
+    // Fresh list on every open, same honesty rule as the model picker.
+    void api.projects().then((res) => setProjects(res.projects));
+    setPicker({ kind: 'project', anchor });
+  };
+  const pickProject = (id: string) => {
+    setProjectId(id);
+    setProjectLabel(
+      id ? (projects.find((p) => p.id === id)?.name ?? id) : '',
+    );
+    localStorage.setItem(PROJECT_KEY, id);
+    localStorage.setItem(PROJECT_KEY + '.label', JSON.stringify(
+      id ? (projects.find((p) => p.id === id)?.name ?? id) : '',
+    ));
+    haptic('light');
+    setPicker({ kind: 'none' });
+  };
   const closePicker = () => setPicker({ kind: 'none' });
 
   /**
@@ -372,6 +413,13 @@ export default function App() {
           closePicker();
           setSettingsOpen(true);
         }}
+      />
+    ) : picker.kind === 'project' ? (
+      <ProjectSheet
+        projects={projects}
+        current={projectId}
+        onPick={pickProject}
+        onClose={closePicker}
       />
     ) : picker.kind === 'permission' ? (
       <PermissionPicker
@@ -446,6 +494,8 @@ export default function App() {
             pills={pills}
             onOpenModel={openModel}
             onOpenPermission={openPermission}
+            projectLabel={projectLabel || 'Project'}
+            onOpenProject={openProject}
             permissionMode={newMode}
             attachments={attachments.items}
             onAddFiles={(files) => attachments.add(files)}

@@ -472,3 +472,14 @@ export interface AuthResponse {
   user: { id: number; firstName?: string; username?: string };
   expiresIn: number;
 }
+
+export interface AsideProject {
+  id: string;
+  name: string;
+  icon?: string;
+  color?: string;
+  workspacePath: string;
+  lastActiveAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}

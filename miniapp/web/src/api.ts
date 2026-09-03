@@ -9,6 +9,7 @@ import type {
   ErrorAlert,
   MessagesResponse,
   MiniappSettings,
+  AsideProject,
   SessionRow,
   StatusResponse,
   ThreadItem,
@@ -93,6 +94,9 @@ export const api = {
       { method: 'POST', body: JSON.stringify(payload) },
     ),
 
+  projects: () =>
+    request<{ projects: AsideProject[] }>('/api/projects', { method: 'GET' }),
+
   newSession: (payload: {
     text: string;
     model?: string;
@@ -100,6 +104,7 @@ export const api = {
     attachments?: string[];
     permissionMode?: string;
     finalConfirm?: boolean;
+    projectId?: string;
   }) =>
     request<{ sessionId: string; accepted: boolean }>('/api/sessions/new', {
       method: 'POST',
