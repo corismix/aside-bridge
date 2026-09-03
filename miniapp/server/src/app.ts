@@ -374,7 +374,7 @@ export async function buildServer(
   // touches their model list -- which is exactly how the phone ended up
   // offering models that no longer existed and hiding ones that did.
   //
-  // Rebuilding is two small cached-by-the-OS file reads, but it is on the
+  // Rebuilding is a few small cached-by-the-OS file reads, but it is on the
   // thread-render path, so it is memoised for a few seconds. Short enough
   // that a change in the desktop shows up on the phone almost at once, long
   // enough that a burst of requests does not re-read per item.

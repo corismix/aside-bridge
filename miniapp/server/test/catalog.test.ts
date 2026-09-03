@@ -8,6 +8,7 @@ import {
   modelLabel,
   readProviderIds,
 } from '../src/catalog.js';
+import { readDesktopProviders, readDesktopSettings } from '../src/desktop.js';
 
 const temps: string[] = [];
 
@@ -17,6 +18,20 @@ function writeCredentials(body: string): string {
   const file = path.join(dir, 'credentials.json');
   fs.writeFileSync(file, body);
   return file;
+}
+
+function writeModels(body: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miniapp-models-'));
+  temps.push(dir);
+  const file = path.join(dir, 'models.json');
+  fs.writeFileSync(file, body);
+  return file;
+}
+
+function writeModelCache(modelsFile: string, body: string, name = 'models-catalog.json'): void {
+  const cache = path.join(path.dirname(modelsFile), 'cache');
+  fs.mkdirSync(cache, { recursive: true });
+  fs.writeFileSync(path.join(cache, name), body);
 }
 
 afterEach(() => {
@@ -74,6 +89,178 @@ describe('buildCatalog', () => {
       'gpt-5.4',
       'gpt-5.4-mini',
     ]);
+  });
+
+  it('uses the first-party account catalog instead of the stale built-in list', () => {
+    const file = writeModels(
+      JSON.stringify({
+        providers: {
+          'openai-codex': {
+            accountModelCatalog: {
+              credentialFingerprint: 'SECRET-FINGERPRINT',
+              modelIds: ['gpt-reserve', 'gpt-5.6-luna', 'codex-auto-review'],
+            },
+          },
+        },
+      }),
+    );
+    const desktop = readDesktopProviders(file);
+    const catalog = buildCatalog(['openai-codex'], {}, desktop, []);
+    const chatgpt = catalog.find((p) => p.id === 'openai-codex')!;
+
+    expect(chatgpt.models.map((m) => m.id)).toEqual([
+      'gpt-reserve',
+      'gpt-5.6-luna',
+      'codex-auto-review',
+    ]);
+    expect(chatgpt.label).toBe('ChatGPT');
+    expect(JSON.stringify(desktop)).not.toContain('SECRET-FINGERPRINT');
+  });
+
+  it('falls back to built-ins when the account catalog has no usable ids', () => {
+    const file = writeModels(
+      JSON.stringify({
+        providers: {
+          'openai-codex': { accountModelCatalog: { modelIds: [null, 42] } },
+        },
+      }),
+    );
+    const catalog = buildCatalog(
+      ['openai-codex'],
+      {},
+      readDesktopProviders(file),
+      [],
+    );
+    const chatgpt = catalog.find((p) => p.id === 'openai-codex')!;
+
+    expect(chatgpt.models.map((m) => m.id)).toContain('gpt-5.6-sol');
+  });
+
+  it('uses Aside’s visible provider cache instead of a second model catalog', () => {
+    const file = writeModels(JSON.stringify({ providers: {} }));
+    writeModelCache(
+      file,
+      JSON.stringify({
+        'opencode-go': {
+          visibleModelIds: ['hy4-preview'],
+          models: [
+            {
+              id: 'hy4-preview',
+              name: 'Hy4 preview',
+              contextWindow: 1024000,
+              input: ['text'],
+              baseUrl: 'https://secret.example.invalid/v1',
+            },
+            { id: 'hidden-model', name: 'Hidden model' },
+          ],
+        },
+        anthropic: {
+          visibleModelIds: ['not-connected'],
+          models: [{ id: 'not-connected', name: 'Not connected' }],
+        },
+      }),
+    );
+
+    const desktop = readDesktopProviders(file);
+    const catalog = buildCatalog(['opencode-go'], {}, desktop, []);
+    const provider = catalog.find((p) => p.id === 'opencode-go')!;
+
+    expect(provider.label).toBe('OpenCode Go');
+    expect(provider.models).toEqual([
+      { id: 'hy4-preview', label: 'Hy4 preview', contextWindow: 1024000 },
+    ]);
+    expect(catalog.find((candidate) => candidate.id === 'anthropic')).toBeUndefined();
+    expect(JSON.stringify(desktop)).not.toContain('secret.example.invalid');
+  });
+
+  it('does not resurrect models when Aside explicitly hides the whole provider', () => {
+    const file = writeModels(JSON.stringify({ providers: {} }));
+    writeModelCache(
+      file,
+      JSON.stringify({
+        'openai-codex': {
+          visibleModelIds: [],
+          models: [{ id: 'hidden-by-account', name: 'Hidden by account' }],
+        },
+      }),
+    );
+
+    const catalog = buildCatalog(
+      ['openai-codex'],
+      {},
+      readDesktopProviders(file),
+      [],
+    );
+
+    expect(catalog.find((provider) => provider.id === 'openai-codex')?.models).toEqual([]);
+  });
+
+  it('applies Aside model visibility settings to the hosted cache', () => {
+    const file = writeModels(JSON.stringify({ providers: {} }));
+    writeModelCache(
+      file,
+      JSON.stringify({
+        catalog: {
+          visibleModelIds: ['gpt-5.6-sol', 'gpt-5.6-terra'],
+          models: [
+            { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+            { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
+            { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' },
+          ],
+        },
+      }),
+      'aside-models-catalog.json',
+    );
+    const settings = writeModels(
+      JSON.stringify({
+        asideModelCatalog: {
+          added: ['gpt-5.6-luna'],
+          removed: ['gpt-5.6-terra'],
+        },
+      }),
+    );
+
+    const { asideModelCatalog } = readDesktopSettings(settings);
+    const provider = readDesktopProviders(
+      file,
+      path.join(path.dirname(file), 'cache', 'models-catalog.json'),
+      asideModelCatalog,
+    )
+      .find((p) => p.id === 'aside')!;
+
+    expect(provider.models.map((model) => model.id)).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-luna',
+    ]);
+  });
+
+  it('keeps settings-backed custom models selectable without leaking transport fields', () => {
+    const modelsFile = writeModels(JSON.stringify({ providers: {} }));
+    const settingsFile = writeModels(
+      JSON.stringify({
+        customModels: [
+          {
+            provider: 'custom-gateway',
+            id: 'local-model',
+            name: 'Local Model',
+            baseUrl: 'https://secret.example.invalid/v1',
+          },
+        ],
+      }),
+    );
+    const { customModels } = readDesktopSettings(settingsFile);
+    const desktop = readDesktopProviders(
+      modelsFile,
+      path.join(path.dirname(modelsFile), 'cache', 'models-catalog.json'),
+      { added: [], removed: [] },
+      customModels,
+    );
+    const catalog = buildCatalog([], {}, desktop, []);
+
+    expect(catalog.find((provider) => provider.id === 'custom-gateway')?.models).toEqual([
+      { id: 'local-model', label: 'Local Model', contextWindow: DEFAULT_CONTEXT_WINDOW },
+    ]);
+    expect(JSON.stringify(desktop)).not.toContain('secret.example.invalid');
   });
 
   it('shows the Aside gateway with display names', () => {

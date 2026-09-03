@@ -158,6 +158,17 @@ both, and the launchd service sets it explicitly.
 A top-level `models` section can add providers or models to the picker, and
 `model_aliases` maps short names (`sonnet`) onto full ids.
 
+The model picker mirrors the active Aside account state. It reads custom/local
+providers from `models.json`, the desktop model inventory from
+`cache/models-catalog.json`, and the hosted Aside inventory from
+`cache/aside-models-catalog.json`; each cached provider is filtered to its
+`visibleModelIds` before it reaches the client. `settings.json` supplies the
+default/category bindings and the hosted catalog's added/removed model
+visibility. The bridge only forwards model ids, display names, context
+windows, and image support -- never provider credentials or transport fields.
+If an authoritative inventory is unavailable, it falls back to the persisted
+account model ids and then the built-in defaults.
+
 Per-user preferences — the default model, reasoning effort and permission
 mode for **new** sessions — are set in the app itself, under Settings, and
 stored in `miniapp-settings.json` beside the config. They never touch

@@ -3,8 +3,8 @@
  *
  * The CLI takes `-m <provider>/<modelId>` but offers no way to enumerate
  * what a given account can actually use -- there is no catalog command.
- * So the catalog is curated here and *seeded* by which providers appear in
- * the user's credentials file.
+ * The desktop account files are authoritative where they expose model data;
+ * this table remains only the fallback for providers without such data.
  *
  * Credentials handling: we read the top-level KEYS of credentials.json and
  * nothing else. The values are OAuth tokens and API keys; they are never
@@ -64,6 +64,7 @@ interface ProviderSeed {
 /** `openrouter` -> `OpenRouter`, for ids that arrive without a label. */
 const LABEL_OVERRIDES: Record<string, string> = {
   openrouter: 'OpenRouter',
+  'opencode-go': 'OpenCode Go',
 };
 
 export function titleCaseProviderId(id: string): string {
@@ -101,8 +102,7 @@ const BUILTIN: ProviderSeed[] = [
   {
     id: 'openai-codex',
     label: 'ChatGPT',
-    // Mirrors the account's accountModelCatalog: gpt-5.3-codex-spark is
-    // no longer offered, and gpt-5.6-sol is.
+    // Fallback when Aside has not persisted an accountModelCatalog yet.
     models: [
       { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
       { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
@@ -195,14 +195,16 @@ export function buildCatalog(
     }
   }
 
-  // Providers the desktop app has configured in models.json. These are
-  // local gateways addressed by baseUrl rather than by a credentials.json
-  // entry, which is why credential seeding alone never surfaced them and
-  // why they had to be transcribed by hand before. models.json is
-  // authoritative for these, so it REPLACES rather than merges: a model the
-  // desktop has dropped must disappear from the phone too, otherwise the
-  // picker keeps offering ids the gateway will reject.
+  // Providers the desktop app exposes through its account catalog files.
+  // This includes cached inventories, local gateways with full model records,
+  // first-party providers with an accountModelCatalog.modelIds list, and
+  // settings-backed custom models. That state is authoritative, so it
+  // REPLACES rather than merges: a model the desktop has dropped must
+  // disappear from the phone too, otherwise the picker keeps offering ids
+  // the provider will reject.
   for (const provider of desktop) {
+    const existing = byId.get(provider.id);
+    const knownModels = new Map(existing?.models.map((m) => [m.id, m]));
     byId.set(provider.id, {
       id: provider.id,
       // desktop.ts falls back to the raw id when models.json has no name;
@@ -210,13 +212,21 @@ export function buildCatalog(
       label:
         provider.label && provider.label !== provider.id
           ? provider.label
-          : titleCaseProviderId(provider.id),
+          : (existing?.label || titleCaseProviderId(provider.id)),
       models: provider.models.map((m) => ({
         id: m.id,
-        label: m.label,
-        contextWindow: m.contextWindow || DEFAULT_CONTEXT_WINDOW,
+        label:
+          m.label && m.label !== m.id
+            ? m.label
+            : (knownModels.get(m.id)?.label || m.id),
+        contextWindow:
+          m.contextWindow || knownModels.get(m.id)?.contextWindow ||
+          DEFAULT_CONTEXT_WINDOW,
       })),
-      connected: true,
+      connected:
+        provider.requiresCredentials === true
+          ? (seedUnknown || connectedSet.has(provider.id))
+          : true,
     });
   }
 
