@@ -2133,10 +2133,14 @@ def handle_message(text, replayed=False):
         # around the block, with the markers removed.
         present_question(question)
     elif not sent_any:
-        if out.strip():
-            send_bubbles(out.strip())
-        elif (not replayed and offset == orig_offset and code != 0 and
-              "session not found" in (err or "").lower()):
+        # Session-expiry recovery must run before the raw-output branch:
+        # the aside CLI prints "Error Session not found: <id>" to stdout,
+        # so a stdout-only fallback would relay the raw error to the user
+        # instead of self-healing. Check both streams.
+        failed_hard = (not replayed and offset == orig_offset and
+                       code != 0 and "session not found" in
+                       ((out or "") + (err or "")).lower())
+        if failed_hard:
             # No transcript output means the daemon rejected this before it
             # could have executed. Tool/protocol rows count as output too:
             # replaying after one could duplicate a side effect.
@@ -2146,6 +2150,8 @@ def handle_message(text, replayed=False):
                 handle_message(text, replayed=True)
             else:
                 send_text("Aside lost this session and couldn't create its replacement; your message was not sent")
+        elif out.strip():
+            send_bubbles(out.strip())
         elif code != 0:
             send_text("hit an error running that: %s"
                       % (err or "unknown")[:300])
