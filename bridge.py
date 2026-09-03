@@ -346,6 +346,8 @@ state.setdefault("offset", 0)
 state.setdefault("model", CONFIG.get("default_model", "claude-sonnet-5"))
 state.setdefault("session_id", CONFIG.get("session_id") or None)
 state.setdefault("recovery_from", None)
+# selected Aside project id for prompt-level project sessions, or None.
+state.setdefault("project_id", None)
 state.setdefault("effort_next", None)
 # pending approval-gate request awaiting an Approve/Deny tap, or None.
 # shape: {token, action, details, session_id, message_id, ts}
@@ -1196,10 +1198,12 @@ def handle_command(text):
     if cmd == "/start":
         send_text("hey, i'm alive. text me anything.")
     elif cmd == "/status":
+        pr = current_project()
         send_text(
-            "model: %s\nsession: %s\neffort: %s\n"
+            "model: %s\nsession: %s\nproject: %s\neffort: %s\n"
             "agent: %s\nqueue: %d waiting"
             % (state["model"], state["session_id"],
+               pr.get("name") if pr else (state.get("project_id") or "none"),
                state["effort_next"] or DEFAULT_EFFORT + " (default)",
                "mid-task" if WORKER_BUSY.is_set() else "idle",
                TASKS.qsize())
@@ -1232,6 +1236,8 @@ def handle_command(text):
         TASKS.put(("cmd", "/new"))
         if WORKER_BUSY.is_set():
             send_text("mid-task, will spin up the fresh session after")
+    elif cmd == "/project":
+        handle_project_cmd(parts[1] if len(parts) > 1 else None)
     elif cmd == "/sessions":
         if arg:
             # /sessions <n> or /sessions <session id>
@@ -1243,7 +1249,7 @@ def handle_command(text):
         else:
             handle_sessions_cmd()
     else:
-        send_text("commands: /status /usage /model /effort /new /sessions")
+        send_text("commands: /status /usage /model /effort /new /sessions /project")
 
 
 def new_session_settings_expression(sid):
@@ -1318,6 +1324,140 @@ def new_marked_session_id(before, marker):
     return None
 
 
+# project selection: aside.sessions.update silently ignores projectId
+# and cwd (both verified against a throwaway session), and `aside exec`
+# has no project flag, so a CLI session cannot be anchored to a project
+# row. The bridge instead tracks a project and seeds every fresh
+# session with the project's workspace path plus its AGENTS.md /
+# MEMORY.md -- prompt-level association, disclosed as such.
+
+PROJECT_CACHE_TTL = 60
+_PROJECTS_CACHE = (0, [])
+
+
+def load_projects():
+    """aside.projects.list() via the repl CLI, cached briefly.
+
+    Returns [] on any failure so /project degrades to an honest error
+    instead of hanging the poller thread.
+    """
+    global _PROJECTS_CACHE
+    t = time.time()
+    if _PROJECTS_CACHE[0] and time.time() - _PROJECTS_CACHE[0] < PROJECT_CACHE_TTL:
+        return _PROJECTS_CACHE[1]
+    try:
+        p = subprocess.run(
+            [ASIDE_CLI, "repl",
+             "console.log(JSON.stringify(await aside.projects.list()))"],
+            capture_output=True, text=True, timeout=30)
+        out = ANSI_RE.sub("", p.stdout or "")
+        for line in reversed(out.splitlines()):
+            line = line.strip()
+            if line.startswith("[") or line.startswith("{"):
+                try:
+                    projects = json.loads(line)
+                    _PROJECTS_CACHE = (time.time(), projects)
+                    return projects
+                except ValueError:
+                    continue
+        log("projects list: no json in repl output: %s" % (out or p.stderr)[:200])
+    except Exception as e:  # noqa: BLE001
+        log("projects list failed: %s" % e)
+    return []
+
+
+def current_project():
+    """The full project row for state['project_id'], or None."""
+    pid = state.get("project_id")
+    if not pid:
+        return None
+    for pr in load_projects():
+        if pr.get("id") == pid:
+            return pr
+    return None
+
+
+def project_context_block(pr):
+    """Seed text that points a fresh session at its project.
+
+    The project's own AGENTS.md / MEMORY.md live either in the
+    workspace itself (code projects) or under the aside project dir
+    (aside-hosted projects); read whichever copy actually exists.
+    """
+    parts = [
+        "PROJECT CONTEXT (from the bridge): you are now working on the "
+        "Aside project '%s' (id %s). Its workspace root is %s -- treat "
+        "that path as the project root for all file work." % (
+            pr.get("name"), pr.get("id"), pr.get("workspacePath"))
+    ]
+    root = pr.get("workspacePath") or ""
+    seen = set()
+    for fname in ("AGENTS.md", "MEMORY.md"):
+        for cand in (os.path.join(root, fname),
+                     os.path.join(detect_aside_root(), "projects",
+                                  pr.get("id", ""), fname)):
+            if cand in seen:
+                continue
+            seen.add(cand)
+            try:
+                with open(cand, encoding="utf-8") as f:
+                    body = f.read().strip()
+                if body:
+                    parts.append("--- %s (%s) ---\n%s"
+                                 % (fname, cand, body[:8000]))
+                break
+            except OSError:
+                continue
+    return "\n\n".join(parts)
+
+
+def handle_project_cmd(arg):
+    """/project: list+current instantly, switch queues a fresh session."""
+    projects = load_projects()
+    if not projects:
+        send_text("couldn't list aside projects (or none exist)")
+        return
+    if not arg:
+        cur = state.get("project_id")
+        lines = ["%2d. %s (%s)%s" % (
+            i, pr.get("name"), pr.get("id"),
+            "  <-- current" if pr.get("id") == cur else "")
+            for i, pr in enumerate(projects, 1)]
+        send_text("projects:\n" + "\n".join(lines) +
+                  "\n\nusage: /project <n or id> | /project off" +
+                  ("\ncurrent: %s" % cur if cur else
+                   "\ncurrent: none (default aside root)"))
+        return
+    if arg == "off":
+        if state.get("project_id"):
+            state["project_id"] = None
+            save_json(STATE_PATH, state)
+        send_text("project cleared, spinning up a fresh default session...")
+        TASKS.put(("cmd", "/new"))
+        return
+    target = None
+    if arg.isdigit() and 1 <= int(arg) <= len(projects):
+        target = projects[int(arg) - 1]
+    else:
+        for pr in projects:
+            if arg.lower() in (pr.get("id", "").lower(),
+                               pr.get("name", "").lower()):
+                target = pr
+                break
+    if not target:
+        send_text("no project matches %r" % arg)
+        return
+    state["project_id"] = target["id"]
+    save_json(STATE_PATH, state)
+    if WORKER_BUSY.is_set():
+        send_text("project set to %s (%s)\nmid-task, will spin up the fresh session after"
+                  % (target.get("name"), target.get("id")))
+    else:
+        send_text("project set to %s (%s)\nspinning up a fresh session inside it..."
+                  % (target.get("name"), target.get("id")))
+    TASKS.put(("cmd", "/new"))
+
+
 def heavy_new(recovery_from=None, announce=True):
     if announce:
         send_text("spinning up a fresh session...")
@@ -1327,6 +1467,9 @@ def heavy_new(recovery_from=None, announce=True):
     continuity = recovery_context(recovery_from) if recovery_from else ""
     if continuity:
         seed += "\n\nRecent visible conversation for continuity only:\n" + continuity
+    pr = current_project()
+    if pr:
+        seed += "\n\n" + project_context_block(pr)
     code, out, err = run_aside(seed, model=state["model"], effort="low")
     if code != 0:
         if announce:
@@ -1360,7 +1503,8 @@ def heavy_new(recovery_from=None, announce=True):
     save_json(STATE_PATH, state)
     _prepare_new_session(sid)
     if announce:
-        send_text("fresh session ready (%s)" % sid)
+        send_text("fresh session ready (%s)%s" % (
+            sid, " -- project: %s" % pr.get("name") if pr else ""))
     return sid
 
 
