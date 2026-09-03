@@ -109,6 +109,14 @@ without credentials: `/api/sessions`, `/:id/thread`, `/:id/messages`, `/:id/arti
 `/:id/attachments`, `/api/attachments` — **every one returned 401**. No route added in a
 later round forgot the hook. Only `/api/health` and `/api/auth` are open, correctly.
 
+**Post-audit routes — not re-probed.** Since this audit, new authenticated routes were
+added without a repeat of the credential-less probe: `/api/sessions/:id/stop`,
+`/api/sessions/:id/answer`, `/api/sessions/:id/recover`, `/api/projects`,
+`/api/sessions/:id/file`. All are registered with the same `requireAuth` preHandler
+(the two file-download routes use `requireAuthOrQueryToken`, which the H-2 fix already
+covers). They have not been through the adversarial probing below; treat that gap as
+known when extending auth or token handling.
+
 **Served content types — clean.** `.html` and `.xhtml` are served `application/octet-stream`;
 `.svg` gets `image/svg+xml` but every response carries `content-security-policy: sandbox;
 default-src 'none'` plus `x-content-type-options: nosniff` and `cache-control: private,
