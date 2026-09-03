@@ -25,7 +25,7 @@ Everything under **Findings** was reproduced before it was fixed. Everything und
 | Race reproduction against `TurnRunner` | 6 scenarios driven with a fake child process |
 | Real-transcript validation | **60 real transcripts, 280 MB, 7 515 messages** from `~/.aside/u/0/sessions` (2 250 sessions on disk, 1.8 GB) run through the production parser + thread builder, read-only. No content copied into the repo |
 | Mutation testing of the existing suite | **28 mutations** across 12 source files; **8 survived** (see §4) |
-| `npm audit` | 0 vulnerabilities, prod and dev, after the 2026-09-03 dependency refresh |
+| `npm audit` | 0 vulnerabilities, prod and dev, after the 2026-09-03 dependency refresh; GitHub Dependabot separately reports two transitive `valibot` alerts |
 | Dependency reality check | every import resolved against `node_modules`; every declared version matches what is installed |
 
 **Honest limits.** The 14 unread components, the CSS, and `setup-miniapp.py` were not
@@ -177,14 +177,18 @@ verification (so revoking the id in config takes effect immediately rather than 
 - Every role present in real data (`assistant`, `toolResult`, `user`, `system-message`,
   `user-message-metadata`) is handled or deliberately ignored.
 
-**Dependencies — clean.** Every import resolves; every `package.json` version matches what
+**Dependencies — local audit clean, with an upstream advisory caveat.** Every import resolves; every `package.json` version matches what
 is installed (`fastify` 5.12.1, `ws` 8.21.1, `jsonwebtoken` 9.0.3,
 `@telegram-apps/init-data-node` 2.0.10, `react` 19.2.8, `lucide-react` 1.26.0,
 `react-markdown` 9.1.0); no fabricated APIs; no hallucinated Telegram WebApp fields — every
 member `telegram.ts` declares (`initData`, `themeParams`, `BackButton`, `HapticFeedback`,
 `disableVerticalSwipes`, `openLink`, `downloadFile`) exists in the SDK, and every optional
-one is called through `?.`. **`npm audit`: 0 vulnerabilities**, prod and dev. No `TODO`,
-`FIXME`, `XXX` or placeholder stub anywhere in `server/src` or `web/src`.
+one is called through `?.`. **`npm audit`: 0 vulnerabilities**, prod and dev. GitHub
+Dependabot currently reports two alerts for transitive `valibot@1.0.0-beta.14`, pinned by
+`@telegram-apps/transformers`; the installed transformer bundle contains neither the
+reported `flatten()` nor emoji-validation paths. This remains an upstream dependency
+follow-up. No `TODO`, `FIXME`, `XXX` or placeholder stub exists in `server/src` or
+`web/src`.
 
 ---
 
