@@ -1,8 +1,10 @@
 # The Aside Mini App
 
 The full Aside sidepanel UI, inside Telegram, driving the Aside agent
-running on your Mac. Two documents cover it: this one (how it works, and
-how to set it up) and [AUDIT.md](AUDIT.md) (the security review).
+running on your Mac. Three documents cover it: this one (how it works, and
+how to set it up), [AUDIT.md](AUDIT.md) (the security review), and
+[ASIDE-DESIGN.md](ASIDE-DESIGN.md) (the extracted sidepanel design system,
+for any look-and-feel work).
 
 ---
 
