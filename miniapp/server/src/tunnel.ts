@@ -1,10 +1,9 @@
 /**
  * Public HTTPS exposure, with no extra tooling for the end user.
  *
- * A Telegram Mini App must be served over HTTPS from a public URL, but the
- * server runs on someone's Mac. Rather than making people set up Tailscale
- * or a Cloudflare account, this downloads the static `cloudflared` binary
- * once and runs a quick tunnel, which needs no account at all.
+ * A Telegram Mini App or standalone PWA must be served over HTTPS from a
+ * public URL, but the server runs on someone's Mac. This supports both the
+ * legacy account-free quick tunnel and a stable Cloudflare named tunnel.
  *
  * The tradeoff, deliberately taken: a quick tunnel's hostname is ephemeral
  * and changes on every restart. That is why `onUrl` exists and why menu
@@ -195,6 +194,11 @@ export function parseTunnelUrl(chunk: string): string | null {
 
 export interface TunnelOptions {
   port: number;
+  mode?: 'quick' | 'named';
+  /** Stable public origin for a named tunnel. */
+  publicUrl?: string;
+  /** File containing the named-tunnel token, outside the repository. */
+  tokenPath?: string;
   /** Directory for the downloaded binary -- outside the repo. */
   binDir: string;
   /** A cloudflared the user installed themselves; skips the download. */
@@ -571,6 +575,7 @@ export class Tunnel {
   }
 
   private handleChunk(chunk: string): void {
+    if (this.opts.mode === 'named') return;
     const found = parseTunnelUrl(chunk);
     if (!found || found === this.url) return;
     this.url = found;
@@ -736,6 +741,16 @@ export class Tunnel {
    */
   async start(): Promise<void> {
     this.stopped = false;
+    if (this.opts.mode === 'named') {
+      const url = String(this.opts.publicUrl || '').replace(/\/+$/, '');
+      if (!/^https:\/\//i.test(url)) {
+        throw new Error('named tunnel requires an https public_url');
+      }
+      if (this.url !== url) {
+        this.url = url;
+        this.opts.onUrl?.(url);
+      }
+    }
     this.startMonitor();
     return this.acquireAndSpawn(true);
   }
@@ -804,9 +819,21 @@ export class Tunnel {
     const spawnFn = this.opts.spawnFn || spawn;
     this.log(`starting tunnel -> http://127.0.0.1:${this.opts.port}`);
 
-    const child = spawnFn(
-      bin,
-      [
+    const named = this.opts.mode === 'named';
+    let args: string[];
+    if (named) {
+      const tokenPath = this.opts.tokenPath;
+      if (!tokenPath) throw new Error('named tunnel requires cloudflared_token_path');
+      const token = fs.readFileSync(tokenPath, 'utf8').trim();
+      if (!token) throw new Error(`named tunnel token file is empty: ${tokenPath}`);
+      args = ['tunnel', '--no-autoupdate', 'run', '--token', token];
+      const url = String(this.opts.publicUrl || '').replace(/\/+$/, '');
+      if (this.url !== url) {
+        this.url = url;
+        this.opts.onUrl?.(url);
+      }
+    } else {
+      args = [
         'tunnel',
         '--no-autoupdate',
         // QUIC (UDP 7844) is blocked on some networks (e.g. VPNs), which
@@ -817,7 +844,12 @@ export class Tunnel {
         'http2',
         '--url',
         `http://127.0.0.1:${this.opts.port}`,
-      ],
+      ];
+    }
+
+    const child = spawnFn(
+      bin,
+      args,
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     this.child = child;

@@ -68,6 +68,13 @@ check("ignores unrelated https urls",
 check("strips json/quote punctuation", bm.parse_tunnel_url([
     '{"msg":"public url: https://a-b-c.trycloudflare.com"}',
 ]) == "https://a-b-c.trycloudflare.com")
+check("finds a Tailscale Funnel hostname", bm.parse_tunnel_url([
+    '{"msg":"public url: https://damocles.tailb6e754.ts.net"}',
+]) == "https://damocles.tailb6e754.ts.net")
+check("ignores menu drift urls", bm.parse_tunnel_url([
+    'public url: https://fresh-name-goes.trycloudflare.com',
+    'menu button drifted (telegram has https://old-name.trycloudflare.com/); repairing',
+]) == "https://fresh-name-goes.trycloudflare.com")
 check("empty log means no url", bm.parse_tunnel_url([]) is None)
 
 # ---- 2. last error -----------------------------------------------------
@@ -164,6 +171,9 @@ check("miniapp.log is first", logs[0].endswith("miniapp.log"))
 
 # ---- 7. installed detection --------------------------------------------
 print("\ninstalled detection")
+# Keep launchd discovery pointed at the throwaway tree. The real machine may
+# have a Mini App plist, which must not make this fixture look installed.
+bm._agents_dir = lambda: agents
 write_config(None)
 check("a bare tree has no mini app", not bm.miniapp_installed())
 write_config({"port": 8790})

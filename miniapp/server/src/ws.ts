@@ -48,6 +48,7 @@ import type { FastifyInstance } from 'fastify';
 import fs from 'node:fs';
 import type { MiniappConfig } from './config.js';
 import { verifyToken } from './auth.js';
+import { cookieFrom } from './auth.js';
 import { isValidSessionId, sessionMsgFile } from './sessions.js';
 import type {
   TurnRunner,
@@ -251,7 +252,7 @@ export function attachWebSocket(deps: Deps): WebSocketServer {
      * flood can still buy is one HS256 verification per attempt, which is
      * microseconds against a bounded-length token.
      */
-    const token = url.searchParams.get('token');
+    const token = url.searchParams.get('token') || cookieFrom(request.headers.cookie);
     let authed = false;
     try {
       verifyToken(token || undefined, jwtSecret, config.allowedUserId);

@@ -40,7 +40,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body) headers.set('content-type', 'application/json');
   if (authToken) headers.set('authorization', `Bearer ${authToken}`);
 
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(path, {
+    ...init,
+    headers,
+    credentials: 'same-origin',
+  });
   const text = await res.text();
   const body = text ? JSON.parse(text) : {};
   if (!res.ok) {
@@ -54,6 +58,32 @@ export const api = {
     request<AuthResponse>('/api/auth', {
       method: 'POST',
       body: JSON.stringify({ initDataRaw }),
+    }),
+
+  pair: (code: string) =>
+    request<{ user: { id: number; firstName?: string }; expiresIn: number }>(
+      '/api/auth/pair',
+      { method: 'POST', body: JSON.stringify({ code }) },
+    ),
+
+  session: () =>
+    request<{ user: { id: number; firstName?: string } }>('/api/auth/session'),
+
+  logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+
+  pushConfig: () =>
+    request<{ enabled: boolean; publicKey: string }>('/api/push/config'),
+
+  savePushSubscription: (subscription: PushSubscriptionJSON) =>
+    request<{ ok: boolean }>('/api/push/subscription', {
+      method: 'POST',
+      body: JSON.stringify({ subscription }),
+    }),
+
+  removePushSubscription: (endpoint: string) =>
+    request<{ ok: boolean }>('/api/push/subscription', {
+      method: 'DELETE',
+      body: JSON.stringify({ endpoint }),
     }),
 
   sessions: (limit = 100) =>
@@ -169,7 +199,12 @@ export const api = {
     const path = sessionId
       ? `/api/sessions/${encodeURIComponent(sessionId)}/attachments`
       : '/api/attachments';
-    const res = await fetch(path, { method: 'POST', body: form, headers });
+    const res = await fetch(path, {
+      method: 'POST',
+      body: form,
+      headers,
+      credentials: 'same-origin',
+    });
     const text = await res.text();
     const body = text ? JSON.parse(text) : {};
     if (!res.ok) {
@@ -236,13 +271,18 @@ export const api = {
   ): Promise<Blob> => {
     const headers = new Headers();
     if (authToken) headers.set('authorization', `Bearer ${authToken}`);
-    const res = await fetch(artifactPath(sessionId, group, path), { headers });
+    const res = await fetch(artifactPath(sessionId, group, path), {
+      headers,
+      credentials: 'same-origin',
+    });
     if (!res.ok) throw new ApiError(res.status, res.statusText);
     return res.blob();
   },
 
   artifactUrl: (sessionId: string, group: ArtifactGroup, path: string) =>
-    `${artifactPath(sessionId, group, path)}&token=${encodeURIComponent(authToken)}`,
+    authToken
+      ? `${artifactPath(sessionId, group, path)}&token=${encodeURIComponent(authToken)}`
+      : artifactPath(sessionId, group, path),
 
   /**
    * A local image an answer points at, by absolute path.
@@ -254,7 +294,7 @@ export const api = {
   localFileUrl: (sessionId: string, absPath: string) =>
     `/api/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(
       absPath,
-    )}&token=${encodeURIComponent(authToken)}`,
+    )}${authToken ? `&token=${encodeURIComponent(authToken)}` : ''}`,
 };
 
 function artifactPath(
@@ -324,9 +364,9 @@ export class TranscriptSocket {
   connect(): void {
     if (this.closed) return;
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${scheme}://${location.host}/ws?token=${encodeURIComponent(
-      authToken,
-    )}`;
+    const url = `${scheme}://${location.host}/ws${
+      authToken ? `?token=${encodeURIComponent(authToken)}` : ''
+    }`;
     const ws = new WebSocket(url);
     this.ws = ws;
 

@@ -2,8 +2,8 @@
  * Fastify app: auth spine, read API, write API, and the SPA host.
  *
  * Everything under /api except /api/auth and /api/health requires a bearer
- * JWT; the WebSocket requires the same token via ?token= or a first
- * `{type:"auth"}` frame.
+ * JWT or the same JWT in the PWA session cookie; the WebSocket accepts the
+ * cookie, ?token=, or a first `{type:"auth"}` frame.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -79,7 +79,17 @@ import {
   MAX_AUTH_AGE_SECONDS,
   validateInitData,
 } from './initdata.js';
-import { TokenError, bearerFrom, mintToken, verifyToken } from './auth.js';
+import {
+  TokenError,
+  bearerFrom,
+  clearSessionCookie,
+  cookieFrom,
+  mintToken,
+  sessionCookie,
+  verifyToken,
+} from './auth.js';
+import { defaultPairingPath, PairingStore } from './pairing.js';
+import { defaultPushPath, PushStore } from './push.js';
 import { parseTranscript } from './transcript.js';
 import { buildThread } from './thread.js';
 import { readHistory, transcriptTooLarge } from './jsonl.js';
@@ -223,6 +233,36 @@ export async function buildServer(
   const settings = new SettingsStore(
     defaultSettingsPath(config.miniapp.stateDir),
   );
+  const pairing = new PairingStore(
+    defaultPairingPath(config.miniapp.stateDir),
+    opts.jwtSecret,
+  );
+  const push = new PushStore(defaultPushPath(config.miniapp.stateDir));
+  runner.on('turn_finished', (turn) => {
+    if (turn.stopped) return;
+    let hasPendingQuestion = false;
+    try {
+      const file = sessionMsgFile(config.sessionsDir, turn.sessionId);
+      if (file) {
+        hasPendingQuestion = buildThread(readHistory(file), false).some(
+          (item) => item.kind === 'question' && item.status === 'pending',
+        );
+      }
+    } catch {
+      // The completion notification remains useful even if the transcript
+      // is being created or rotated at the same moment.
+    }
+    const kind = turn.alert || turn.suspended || hasPendingQuestion
+      ? 'attention'
+      : 'complete';
+    void push.notify({ sessionId: turn.sessionId, kind }).catch((err) => {
+      app.log.warn({ err }, 'push notification failed');
+    });
+  });
+  const secureCookie =
+    config.miniapp.tunnel === 'cloudflared' ||
+    config.miniapp.tunnel === 'tailscale' ||
+    config.miniapp.publicUrl.startsWith('https://');
   // "Confirm before acting" for sessions driven from a phone. It is NOT
   // the daemon's `finalConfirm`: that one mandates the native confirmation
   // tool, which is the thing that bricks a mobile session. See
@@ -411,11 +451,25 @@ export async function buildServer(
     },
   });
 
-  /** Bearer-token gate for every /api route except auth and health. */
+  function requestOriginAllowed(request: FastifyRequest): boolean {
+    const origin = request.headers.origin;
+    if (!origin) return true;
+    const publicUrl = opts.publicUrl?.() || config.miniapp.publicUrl;
+    if (publicUrl && origin === publicUrl) return true;
+    const scheme = request.protocol || 'http';
+    return origin === `${scheme}://${request.headers.host || ''}`;
+  }
+
+  /** Bearer/cookie gate for every /api route except auth and health. */
   const requireAuth = async (request: FastifyRequest, reply: any) => {
+    const bearer = bearerFrom(request.headers.authorization);
+    const cookie = cookieFrom(request.headers.cookie);
+    if (!bearer && cookie && request.method !== 'GET' && !requestOriginAllowed(request)) {
+      return reply.code(403).send({ error: 'csrf_rejected' });
+    }
     try {
       const claims = verifyToken(
-        bearerFrom(request.headers.authorization),
+        bearer || cookie,
         opts.jwtSecret,
         config.allowedUserId,
       );
@@ -488,6 +542,68 @@ export async function buildServer(
         request.log.error({ err }, 'auth failure');
         return reply.code(500).send({ error: 'internal' });
       }
+    },
+  );
+
+  app.post(
+    '/api/auth/pair',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const body = (request.body || {}) as { code?: unknown };
+      if (!pairing.consume(String(body.code ?? ''))) {
+        return reply.code(401).send({ error: 'pairing_failed', reason: 'invalid_or_expired_code' });
+      }
+      const token = mintToken(opts.jwtSecret, {
+        sub: String(config.allowedUserId),
+        uid: config.allowedUserId,
+        name: 'Owner',
+      });
+      reply.header('set-cookie', sessionCookie(token, secureCookie));
+      return {
+        user: { id: config.allowedUserId, firstName: 'Owner' },
+        expiresIn: 24 * 60 * 60,
+      };
+    },
+  );
+
+  app.get('/api/auth/session', { preHandler: requireAuth }, async (request) => {
+    const user = (request as any).user as { uid: number; name?: string };
+    return { user: { id: user.uid, firstName: user.name } };
+  });
+
+  app.post('/api/auth/logout', async (_request, reply) => {
+    reply.header('set-cookie', clearSessionCookie(secureCookie));
+    return { ok: true };
+  });
+
+  app.get('/api/push/config', { preHandler: requireAuth }, async () => ({
+    enabled: true,
+    publicKey: push.publicKey(),
+  }));
+
+  app.post(
+    '/api/push/subscription',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const body = (request.body || {}) as { subscription?: unknown };
+      const subscription = body.subscription ?? body;
+      if (!push.save(subscription)) {
+        return reply.code(400).send({ error: 'bad_push_subscription' });
+      }
+      return { ok: true };
+    },
+  );
+
+  app.delete(
+    '/api/push/subscription',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const body = (request.body || {}) as { endpoint?: unknown };
+      if (typeof body.endpoint !== 'string') {
+        return reply.code(400).send({ error: 'bad_push_subscription' });
+      }
+      push.remove(body.endpoint);
+      return { ok: true };
     },
   );
 

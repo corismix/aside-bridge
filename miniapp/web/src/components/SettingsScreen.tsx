@@ -20,7 +20,14 @@
 import { useEffect, useState } from 'react';
 import { AsideSymbol, Check, ChevronLeft, ProviderMark, Spinner } from './Icons';
 import { api } from '../api';
-import { haptic } from '../telegram';
+import {
+  haptic,
+  inTelegram,
+  setThemePreference,
+  themePreference,
+  type ThemePreference,
+} from '../telegram';
+import { disablePush, enablePush, pushEnabled, pushSupported } from '../push';
 import type { MiniappSettings, StatusResponse } from '../types';
 
 function Section({
@@ -155,12 +162,18 @@ function Switch({
 export function SettingsScreen({
   status,
   onClose,
+  onLogout,
 }: {
   status: StatusResponse | null;
   onClose: () => void;
+  onLogout: () => void;
 }) {
   const [settings, setSettings] = useState<MiniappSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemePreference>(() => themePreference());
 
   useEffect(() => {
     let alive = true;
@@ -172,6 +185,25 @@ export function SettingsScreen({
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (inTelegram() || !pushSupported()) return;
+    void pushEnabled().then(setPushOn).catch(() => {});
+  }, []);
+
+  const togglePush = async (next: boolean) => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      if (next) await enablePush();
+      else await disablePush();
+      setPushOn(next);
+    } catch (err) {
+      setPushError((err as Error).message);
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   /**
    * Optimistic, then corrected by what the server stored.
@@ -336,12 +368,48 @@ export function SettingsScreen({
             </Section>
 
             <Section title="Appearance">
-              <Row
+              <ChoiceRow
                 title="Theme"
-                description="Follows Telegram’s own light or dark setting."
-                control={<span className="settings-readout">Automatic</span>}
+                description="Choose the appearance for this browser."
+                value={theme}
+                options={[
+                  { id: 'system', label: 'System' },
+                  { id: 'light', label: 'Light' },
+                  { id: 'dark', label: 'Dark' },
+                ]}
+                onPick={(id) => {
+                  const next = id as ThemePreference;
+                  setTheme(next);
+                  setThemePreference(next);
+                }}
               />
             </Section>
+
+            {!inTelegram() ? (
+              <Section
+                title="Notifications"
+                note="Notifications are sent when a task finishes or needs attention. Transcript text is never included in a push message."
+              >
+                <Row
+                  title="Task notifications"
+                  description={
+                    pushSupported()
+                      ? pushError || 'Works while this browser is closed.'
+                      : 'This browser does not support Web Push.'
+                  }
+                  control={
+                    <Switch
+                      checked={pushOn}
+                      label="Task notifications"
+                      onChange={(next) => void togglePush(next)}
+                    />
+                  }
+                />
+                {pushBusy ? (
+                  <p className="settings-inline-status"><Spinner size={13} /> Updating…</p>
+                ) : null}
+              </Section>
+            ) : null}
 
             <Section title="Connection">
               <Row
@@ -358,7 +426,7 @@ export function SettingsScreen({
               />
               <Row
                 title="Telegram bridge"
-                description="The Python bridge that handles plain chat messages."
+                description="The Python bridge that handles Telegram chat messages."
                 control={
                   <span className="settings-readout">
                     {service?.bridgeConfigured ? 'Configured' : 'Not found'}
@@ -369,14 +437,18 @@ export function SettingsScreen({
                 title="Tunnel"
                 description={
                   service?.tunnelUrl || (
-                    service?.tunnel === 'cloudflared'
+                    service?.tunnel !== 'none'
                       ? 'Starting…'
                       : 'Serving on the local network only.'
                   ) as string
                 }
                 control={
                   <span className="settings-readout">
-                    {service?.tunnel === 'cloudflared' ? 'cloudflared' : 'Off'}
+                    {service?.tunnel === 'tailscale'
+                      ? 'Tailscale Funnel'
+                      : service?.tunnel === 'cloudflared'
+                        ? 'cloudflared'
+                        : 'Off'}
                   </span>
                 }
               />
@@ -388,6 +460,18 @@ export function SettingsScreen({
                   </span>
                 }
               />
+            </Section>
+
+            <Section title="Session">
+              <button
+                type="button"
+                className="settings-action"
+                onClick={() => {
+                  void api.logout().then(onLogout, onLogout);
+                }}
+              >
+                Sign out of this browser
+              </button>
             </Section>
           </>
         ) : null}

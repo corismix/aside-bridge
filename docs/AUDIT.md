@@ -1,8 +1,9 @@
-# Independent audit — Aside Telegram Mini App
+# Independent audit — Aside Telegram Mini App and standalone PWA
 
-**Scope:** everything under `miniapp/` (Fastify + `ws` TypeScript server, React 19 SPA).
+**Scope:** everything under `miniapp/` (Fastify + `ws` TypeScript server, React 19 SPA),
+including the standalone PWA and its Tailscale Funnel integration.
 **Auditor:** an agent that did not write this code.
-**Date:** 2026-07-27.
+**Original audit:** 2026-07-27. **Follow-up review:** 2026-09-03.
 **Premise:** the whole tree was produced by AI workers across five build rounds and is
 about to ship publicly behind a Cloudflare tunnel. Surface quality is high everywhere —
 long explanatory comments, plausible-sounding rationales, ~300 tests. That is exactly the
@@ -24,7 +25,7 @@ Everything under **Findings** was reproduced before it was fixed. Everything und
 | Race reproduction against `TurnRunner` | 6 scenarios driven with a fake child process |
 | Real-transcript validation | **60 real transcripts, 280 MB, 7 515 messages** from `~/.aside/u/0/sessions` (2 250 sessions on disk, 1.8 GB) run through the production parser + thread builder, read-only. No content copied into the repo |
 | Mutation testing of the existing suite | **28 mutations** across 12 source files; **8 survived** (see §4) |
-| `npm audit` | 0 vulnerabilities, prod and dev |
+| `npm audit` | 0 vulnerabilities, prod and dev, after the 2026-09-03 dependency refresh |
 | Dependency reality check | every import resolved against `node_modules`; every declared version matches what is installed |
 
 **Honest limits.** The 14 unread components, the CSS, and `setup-miniapp.py` were not
@@ -117,6 +118,15 @@ added without a repeat of the credential-less probe: `/api/sessions/:id/stop`,
 covers). They have not been through the adversarial probing below; treat that gap as
 known when extending auth or token handling.
 
+**Standalone PWA additions — covered by focused tests and a live HTTP probe.** The
+PWA adds one-use pairing at `/api/auth/pair`, an HttpOnly `aside_session` cookie with
+same-origin protection for cookie-authenticated writes, `/api/auth/session` and logout,
+plus authenticated Web Push subscription routes. The current test suite covers pairing
+consumption, cookie restoration, subscription validation, and tunnel argument
+construction. The Tailscale Funnel route was verified to serve the health endpoint,
+manifest, service worker, and official Aside icon over HTTPS. Actual browser push
+delivery and iOS home-screen installation remain manual acceptance checks.
+
 **Served content types — clean.** `.html` and `.xhtml` are served `application/octet-stream`;
 `.svg` gets `image/svg+xml` but every response carries `content-security-policy: sandbox;
 default-src 'none'` plus `x-content-type-options: nosniff` and `cache-control: private,
@@ -168,7 +178,7 @@ verification (so revoking the id in config takes effect immediately rather than 
   `user-message-metadata`) is handled or deliberately ignored.
 
 **Dependencies — clean.** Every import resolves; every `package.json` version matches what
-is installed (`fastify` 5.10.0, `ws` 8.21.1, `jsonwebtoken` 9.0.3,
+is installed (`fastify` 5.12.1, `ws` 8.21.1, `jsonwebtoken` 9.0.3,
 `@telegram-apps/init-data-node` 2.0.10, `react` 19.2.8, `lucide-react` 1.26.0,
 `react-markdown` 9.1.0); no fabricated APIs; no hallucinated Telegram WebApp fields — every
 member `telegram.ts` declares (`initData`, `themeParams`, `BackButton`, `HapticFeedback`,
@@ -250,12 +260,13 @@ rejects it) and either rate-limit defence in isolation (each alone is sufficient
 npm run typecheck   # clean (server + web)
 npm run build       # clean (vite + tsc)
 MINIAPP_PORT=8792 MINIAPP_TUNNEL=none MINIAPP_AUTO_REGISTER_MENU=0 npm test
-#   server: 323 passed (323)
-#   web:     83 passed (83)
+#   server: 552 passed (552)
+#   web:     178 passed (178)
 ```
 
-The suite was **286 + 71** before this audit, with **1 failing** under that exact command.
-It is now **323 + 83**, all passing, under that exact command.
+The original audit suite was **286 + 71** before its fixes and became **323 + 83**.
+The current follow-up suite is **552 + 178**, all passing under the same isolated
+command.
 
 Measured effect of the fixes on the owner's own largest session
 (57 MB transcript):
@@ -266,8 +277,7 @@ Measured effect of the fixes on the owner's own largest session
 | Diff cost per push (unchanged transcript) | 176 ms | **0 ms** |
 | Diff cost per push (worst case, rebuilt) | 176 ms | **34 ms** |
 
-No file outside `miniapp/` and `docs/` was modified. `bridge.py` and every other root file
-were read only. The live server on port 8790, its tunnel and the Python bridge were never
-touched; all probes ran against throwaway instances on ephemeral ports. Real session
-transcripts and the daemon database were opened read-only, and no personal content was
-copied into the repository.
+The original audit probes used throwaway instances on ephemeral ports and did not modify
+the live server, tunnel, or Python bridge. The 2026-09-03 follow-up also verified the
+canonical launchd service and Tailscale Funnel over HTTPS, but did not copy any runtime
+state, logs, tokens, session transcripts, or database contents into the repository.

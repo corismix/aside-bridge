@@ -55,6 +55,16 @@ describe('tunnel + menu kill-switches', () => {
     expect(config.miniapp.autoRegisterMenu).toBe(true);
   });
 
+  it('loads Tailscale as a public tunnel provider', () => {
+    const config = withMiniapp({
+      tunnel: 'tailscale',
+      tailscale_path: '/usr/local/bin/tailscale',
+      auto_register_menu: true,
+    });
+    expect(config.miniapp.tunnel).toBe('tailscale');
+    expect(config.miniapp.tailscalePath).toBe('/usr/local/bin/tailscale');
+  });
+
   it('MINIAPP_TUNNEL=none disables a configured tunnel', () => {
     process.env.MINIAPP_TUNNEL = 'none';
     const config = withMiniapp({ tunnel: 'cloudflared', auto_register_menu: true });
@@ -80,6 +90,18 @@ describe('tunnel + menu kill-switches', () => {
     const config = withMiniapp({});
     expect(config.miniapp.tunnel).toBe('cloudflared');
     expect(config.miniapp.autoRegisterMenu).toBe(true);
+  });
+
+  it('loads the stable PWA tunnel settings', () => {
+    const config = withMiniapp({
+      tunnel: 'cloudflared',
+      tunnel_mode: 'named',
+      public_url: 'https://aside.example.com/',
+      cloudflared_token_path: '~/Library/Application Support/Aside/tunnel.token',
+    });
+    expect(config.miniapp.tunnelMode).toBe('named');
+    expect(config.miniapp.publicUrl).toBe('https://aside.example.com');
+    expect(config.miniapp.cloudflaredTokenPath).toContain('Application Support/Aside');
   });
 });
 

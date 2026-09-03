@@ -1,10 +1,12 @@
 # aside-bridge
 
-Text your [Aside](https://aside.so) browser agent from your phone.
+Text and control your [Aside](https://aside.so) browser agent from your
+phone.
 
-Your full Aside agent -- tools, memory, everything -- living in a Telegram
-chat. Ask it things, send it photos, give it multi-step tasks, watch live
-progress fold into a tidy collapsible worklog when it's done.
+Your full Aside agent -- tools, memory, everything -- is available through
+Telegram or an installable standalone PWA. Ask it things, send it photos,
+give it multi-step tasks, and watch live progress fold into a tidy
+collapsible worklog when it's done.
 
 ## Install (one command)
 
@@ -21,19 +23,22 @@ The setup wizard walks you through the rest:
 2. You text your new bot once -- the wizard detects you automatically.
 3. Pick a reply style. The chat bridge installs itself as a background
    service and your bot answers from then on, even after reboots.
-4. It then offers the Mini App and defaults to yes. That step builds the
+4. It then offers the Mini App/PWA and defaults to yes. That step builds the
    web app, so it takes a few minutes on a first run; the chat bridge is
    already working while it does. It finishes by printing your public
-   URL and pointing your bot's menu button at it.
+   URL and, if enabled, pointing your bot's menu button at it.
 
 Budget about two minutes of your attention and a few more of waiting.
 Everything after the token is either automatic or a yes/no.
 
-No dependencies, no pip installs, no webhooks, no ports. Plain Python that
-ships with macOS, talking outbound to Telegram only.
+The core Telegram bridge needs no pip installs, webhooks, or manually exposed
+ports: it is plain Python that ships with macOS and talks outbound to Telegram.
+The optional Mini App/PWA adds a Node 20+ build and a local service behind the
+selected HTTPS tunnel.
 
 Requirements: a Mac with [Aside](https://aside.so) installed, and a
-Telegram account. The [Mini App](#the-mini-app) also needs Node 20+ --
+Telegram account. The
+[Mini App/PWA](#the-mini-app-and-pwa) also needs Node 20+ --
 the installer checks for it up front and tells you how to add it later if
 it is missing, rather than failing halfway.
 
@@ -89,10 +94,12 @@ aside: Drafted a reply. Want to see it before I send?
 | `/project <n or id>` | select a project; spins up a fresh session seeded with the project's workspace path and its AGENTS.md / MEMORY.md (prompt-level: the CLI cannot anchor a session row to a project) |
 | `/project off` | clear the project and return to a fresh default session |
 
-## The Mini App
+## The Mini App and PWA
 
-The chat is for texting your agent. The Mini App is for *watching* it work:
-the full Aside UI, inside Telegram, on the phone you already have out.
+The chat is for texting your agent. The Mini App and PWA are for *watching*
+and controlling it work: the full Aside UI on the phone you already have out.
+Telegram and the PWA are parallel clients, so installing the PWA does not
+remove the Telegram option.
 
 https://github.com/user-attachments/assets/d119cb77-8860-463e-87b5-88b98212fc29
 
@@ -151,20 +158,64 @@ python3 miniapp/setup-miniapp.py
 ```
 
 It checks for Node 20+, builds the app, installs a launchd service
-(`com.aside.miniapp`), starts a Cloudflare quick tunnel so Telegram can
-reach it over HTTPS, and points the bot's menu button at it -- that button
-is the **Aside** entry you tap. Quick-tunnel URLs rotate on restart and the
-server re-registers the button each time, so it keeps working.
+(`com.aside.miniapp`), and, when enabled, starts a public HTTPS tunnel so
+Telegram and the PWA can reach it. Tailscale Funnel is the recommended free provider: it gives
+you a stable `*.ts.net` URL without buying a domain. Cloudflare Quick Tunnel
+and named tunnels remain available as alternatives. It can also point the
+bot's menu button at the tunnel -- that button is the **Aside** entry you tap
+in Telegram.
+
+### Install the standalone PWA (no App Store)
+
+The PWA uses the same Aside features as the Telegram Mini App. It is installed
+from the browser and does not create an IPA/APK or require App Store
+publication.
+
+1. Run the Mini App setup if it is not already installed:
+
+   ```bash
+   python3 miniapp/setup-miniapp.py
+   ```
+
+   Choose **tailscale** for a stable free URL. The Tailscale macOS app must be
+   installed, signed in, and running in the background. Choose **cloudflared**
+   for a temporary Quick Tunnel or a named tunnel on a domain you control.
+
+2. Open the public HTTPS URL in Safari or Chrome. On the Mac, generate a
+   one-time pairing code:
+
+   ```bash
+   bridgemon miniapp pair
+   ```
+
+3. Enter that code in the browser. It expires after ten minutes and can only
+   be used once.
+
+4. Install it from the browser:
+
+   - iPhone/iPad Safari: **Share → Add to Home Screen**.
+   - Chrome: use the **Install** icon in the address bar or **Install Aside**
+     from the browser menu.
+
+5. Open **Settings → Task notifications** in the PWA if you want a push when
+   a task finishes or needs attention. On iPhone/iPad, Web Push requires the
+   site to be installed on the Home Screen and notification permission to be
+   granted.
+
+The existing Telegram menu button and chat bridge remain available at the same
+time. For the complete configuration reference, see
+[docs/MINIAPP.md](docs/MINIAPP.md).
 
 **How auth works.** Telegram signs every Mini App launch with an HMAC over
 your bot token; the server validates that signature, checks the user id
 against the same one-person allowlist the bridge uses, and mints a 24-hour
-JWT. Every API call and the WebSocket carry it. Nothing is exposed but that
-one authenticated HTTP surface, bound to loopback and published through the
-tunnel — no inbound ports, no database, no third-party service. The bot
-token never leaves the process, and the tunnel binary is a pinned
-cloudflared release verified against a SHA-256 vendored in this repo before
-it is ever executed.
+JWT. Telegram carries it as a bearer token. The standalone PWA gets its
+session through the one-time pairing code and keeps it in an HttpOnly cookie.
+The API and WebSocket remain authenticated, bound to loopback, and published
+through the tunnel — no inbound ports or hosted backend. The bot token never
+leaves the process. When Cloudflare is selected, its tunnel binary is a pinned
+release verified against a SHA-256 vendored in this repo before it is executed;
+Tailscale uses the installed, signed-in Tailscale backend instead.
 
 **[docs/MINIAPP.md](docs/MINIAPP.md)** has the architecture, the full setup
 path, the config keys, and the limitations worth reading before deciding
@@ -187,6 +238,7 @@ Setup links a `bridgemon` command into `~/bin`. It manages both services:
   is rebuilt (`npm install && npm run build`) and restarted too, with the
   same snapshot-and-roll-back rule.
 - `bridgemon miniapp start|stop|restart|logs` -- the Mini App on its own.
+- `bridgemon miniapp pair` -- generate a one-use code for the standalone PWA.
 - `bridgemon logs` / `rollback` / `init` -- the rest.
 
 To stop everything: `bridgemon watch --kill` and `bridgemon miniapp stop`.
@@ -323,7 +375,7 @@ turn to any level (off through ultrabrowse).
 | `monitor.py` | live monitor + kill switch (via `bridgemon watch`) |
 | `config.example.json` | reference config |
 | `com.aside.bridge.plist` | launchd template (manual installs) |
-| `miniapp/` | the Telegram Mini App: Fastify server + React web app |
+| `miniapp/` | the Telegram Mini App and standalone PWA: Fastify server + React web app |
 | `miniapp/setup-miniapp.py` | Mini App setup wizard (Node, build, service) |
 | `docs/MINIAPP.md` | Mini App: how it works, setup, limitations |
 | `docs/AUDIT.md` | independent security/robustness audit of the Mini App |
@@ -336,8 +388,8 @@ Designed, built, tested, and documented by an Aside agent, working as a
 digital co-founder for [@SaiAmartya](https://github.com/SaiAmartya), who had
 the good ideas, caught the UX regressions, and made the executive calls.
 
-The self-healing Cloudflare tunnel, the live desktop model catalog, Aside
-account auto-detection and the rebuilt mobile UI came from
+The self-healing tunnel/menu synchronization, the live desktop model catalog,
+Aside account auto-detection and the rebuilt mobile UI came from
 [@Parthkkk](https://github.com/Parthkkk), offered back upstream from a fork
 (MIT, copyright retained in `LICENSE`). The provider-qualified model id map
 came from [@mosidevv](https://github.com/mosidevv).

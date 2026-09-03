@@ -18,6 +18,7 @@ Mini App (the Telegram Mini App UI, if installed):
   bridgemon miniapp status  running state, pid, port, tunnel URL
   bridgemon miniapp start | stop | restart
   bridgemon miniapp logs [n]
+  bridgemon miniapp pair   generate a one-use code for the standalone PWA
 
 Live monitor (delegates to monitor.py, same as before):
   bridgemon watch           merged live timeline + interactive kill switch
@@ -252,15 +253,18 @@ def miniapp_logs(section=None):
 
 
 def parse_tunnel_url(lines):
-    """The most recent trycloudflare hostname in some log lines."""
+    """The most recent supported public tunnel hostname in log lines."""
     for line in reversed(lines):
+        lowered = line.lower()
+        if "public url" not in lowered and "tunnel url" not in lowered:
+            continue
         at = line.find("https://")
         if at == -1:
             continue
         # The URL is banner text in one log and a JSON string value in
         # another, so trailing quoting/bracketing comes off either way.
         url = line[at:].split()[0].rstrip('"\'.,;:)]}')
-        if "trycloudflare.com" in url:
+        if "trycloudflare.com" in url or ".ts.net" in url:
             return url
     return None
 
@@ -299,7 +303,8 @@ def miniapp_status():
     # "waiting…" is only honest if there is a log to wait on. A server
     # started by hand logs to its terminal, and reporting that as
     # "waiting" would be reporting a guess as a state.
-    if section.get("tunnel") != "cloudflared":
+    provider = section.get("tunnel")
+    if provider == "none":
         tunnel_note = "off"
     elif any(os.path.exists(p) for p in logs):
         tunnel_note = "waiting…"
@@ -316,7 +321,7 @@ def miniapp_status():
         "healthy": miniapp_health(port),
         "tunnel": parse_tunnel_url(lines),
         "last_error": parse_last_error(lines),
-        "tunnel_mode": section.get("tunnel", "none"),
+        "tunnel_mode": provider or "none",
         "auto_register_menu": bool(section.get("auto_register_menu")),
     }
 
@@ -328,6 +333,16 @@ def _npm():
     # launchd-style minimal PATH is not this process's problem, but a
     # login shell that never picked up Homebrew is a common one.
     for candidate in ("/opt/homebrew/bin/npm", "/usr/local/bin/npm"):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _node():
+    node = shutil.which("node")
+    if node:
+        return node
+    for candidate in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
         if os.path.exists(candidate):
             return candidate
     return None
@@ -426,6 +441,15 @@ def cmd_miniapp(args):
                 print(line)
         return 0
 
+    if sub == "pair":
+        node = _node()
+        pair_js = os.path.join(MINIAPP_DIR, "server", "dist", "pair.js")
+        if not node or not os.path.exists(pair_js):
+            print("Mini App server is not built -- run: cd miniapp && npm run build")
+            return 1
+        result = subprocess.run([node, pair_js], cwd=MINIAPP_DIR)
+        return result.returncode
+
     if sub in ("start", "stop", "restart"):
         if not os.path.exists(plist_path(MINIAPP_LABEL)):
             print("no %s.plist installed -- run: "
@@ -455,7 +479,7 @@ def cmd_miniapp(args):
         return 0 if healthy else 1
 
     print("unknown: bridgemon miniapp %s" % sub)
-    print("try: status | start | stop | restart | logs [n]")
+    print("try: status | start | stop | restart | logs [n] | pair")
     return 1
 
 

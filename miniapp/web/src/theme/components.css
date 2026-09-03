@@ -41,6 +41,88 @@
   font-size: var(--text-sm);
 }
 
+.pairing-screen {
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.pairing-mark {
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.pairing-screen code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.pairing-form {
+  width: min(100%, 340px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pairing-input,
+.pairing-button {
+  min-height: 44px;
+  border-radius: 12px;
+  font: inherit;
+}
+
+.pairing-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 14px;
+  text-align: center;
+  letter-spacing: 0.12em;
+  font-family: var(--font-mono);
+  background: var(--surface-primary);
+  color: var(--foreground);
+  border: 1px solid var(--border-surface-strong);
+}
+
+.pairing-button {
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.pairing-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pairing-error {
+  margin: 10px 0 0;
+  color: var(--destructive);
+  font-size: var(--text-sm);
+}
+
+.settings-inline-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 9px 14px;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+}
+
+.settings-action {
+  width: 100%;
+  border: 0;
+  padding: 13px 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--destructive);
+  background: transparent;
+  cursor: pointer;
+}
+
 /* --- home ---------------------------------------------------------------- */
 
 .home {
@@ -2690,6 +2772,12 @@
 
 .aside-logo {
   display: inline-flex;
+}
+
+/* The dark artwork is opt-in. Without this base rule both pre-shaded
+ * variants occupy the same pixel in light mode. */
+.aside-logo-dark {
+  display: none;
 }
 
 .aside-logo svg {
