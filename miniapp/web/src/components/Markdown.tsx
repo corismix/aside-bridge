@@ -114,7 +114,7 @@ export const Markdown = memo(function Markdown({
   );
 
   return (
-    <div className="md">
+    <div className={streaming ? 'md is-streaming' : 'md'}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         // react-markdown drops any href outside its safe-protocol list, so
