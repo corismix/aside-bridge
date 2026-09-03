@@ -15,6 +15,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
+import { defaultAsideRoot } from './config.js';
 
 const execFileP = promisify(execFile);
 
@@ -105,7 +107,7 @@ export async function projectContextBlock(pr: AsideProject): Promise<string> {
       pr.workspacePath.startsWith('~')
         ? pr.workspacePath.replace('~', os.homedir())
         : pr.workspacePath,
-      `/Users/USER/.aside/u/0/projects/${pr.id}/${fname}`,
+      path.join(defaultAsideRoot(), 'projects', pr.id),
     ].map((dir) => `${dir}/${fname}`)) {
       if (seen.has(cand)) continue;
       seen.add(cand);
