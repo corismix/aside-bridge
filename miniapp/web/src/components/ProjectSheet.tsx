@@ -2,13 +2,16 @@
  * Project picker for new sessions.
  *
  * Mirrors ModelSheet's grouped-row shape so the composer's sheets read as
- * one family. Picking a project only affects the NEXT session: the CLI
- * cannot anchor a session row to a project (see server/src/projects.ts),
- * so a mobile project session is a normal session seeded with the
- * project's workspace path and its AGENTS.md / MEMORY.md.
+ * one family. Rows carry the project's own icon and colour from the
+ * desktop app (via aside.projects.list()), rendered as tinted glyph chips.
+ * Picking a project only affects the NEXT session: the CLI cannot anchor
+ * a session row to a project (see server/src/projects.ts), so a mobile
+ * project session is a normal session seeded with the project's workspace
+ * path and its AGENTS.md / MEMORY.md.
  */
 import { Sheet } from './Sheet';
-import { BookOpen } from './Icons';
+import { Folder } from './Icons';
+import { projectIcon, projectTint } from '../utils/projects';
 import type { AsideProject } from '../types';
 
 export interface ProjectSheetProps {
@@ -18,12 +21,21 @@ export interface ProjectSheetProps {
   onClose: () => void;
 }
 
-export function ProjectSheet({
-  projects,
-  current,
-  onPick,
-  onClose,
-}: ProjectSheetProps) {
+/** Row glyph with the project's own icon, tinted by its colour. */
+function Glyph({ pr, size = 17 }: { pr: AsideProject; size?: number }) {
+  const Icon = projectIcon(pr.icon);
+  const tint = projectTint(pr.color);
+  return (
+    <span
+      className="project-glyph"
+      style={{ color: tint.fg, background: tint.bg }}
+    >
+      <Icon size={size} strokeWidth={1.75} />
+    </span>
+  );
+}
+
+export function ProjectSheet({ projects, current, onPick, onClose }: ProjectSheetProps) {
   return (
     <Sheet side="bottom" title="Project" onClose={onClose}>
       <div className="sheet-group">
@@ -33,7 +45,9 @@ export function ProjectSheet({
           onClick={() => onPick('')}
         >
           <span className="sheet-row-glyph">
-            <BookOpen size={17} strokeWidth={1.75} />
+            <span className="project-glyph project-glyph-none">
+              <Folder size={17} strokeWidth={1.75} />
+            </span>
           </span>
           <span className="sheet-row-text">
             <span className="sheet-row-title">No project</span>
@@ -50,7 +64,7 @@ export function ProjectSheet({
             onClick={() => onPick(pr.id)}
           >
             <span className="sheet-row-glyph">
-              <BookOpen size={17} strokeWidth={1.75} />
+              <Glyph pr={pr} />
             </span>
             <span className="sheet-row-text">
               <span className="sheet-row-title">{pr.name}</span>
@@ -62,3 +76,4 @@ export function ProjectSheet({
     </Sheet>
   );
 }
+

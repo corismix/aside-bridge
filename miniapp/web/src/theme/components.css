@@ -93,7 +93,32 @@
 }
 
 /* Soft filled capsules, matching the round buttons beside them. */
-.composer .pill {
+.composer /* Project glyphs: the desktop app's project icon + colour, as a small
+   tinted chip. Foreground and background are inline-styled per project;
+   these rules only fix shape and alignment. */
+.project-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: calc(var(--radius-md) + 1px);
+  flex: none;
+}
+
+.project-glyph-sm {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-md);
+  margin-right: 2px;
+}
+
+/* The "No project" row keeps the neutral folder without a chip wash. */
+.project-glyph-none {
+  background: transparent;
+}
+
+.pill {
   height: 32px;
   padding: 0 6px;
   gap: 3px;

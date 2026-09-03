@@ -60,6 +60,8 @@ export interface ComposerProps {
    * NEXT session, which is a home-composer decision.
    */
   projectLabel?: string;
+  /** Tinted project glyph for the project pill. */
+  projectGlyph?: React.ReactNode;
   onOpenProject?: (anchor: HTMLElement) => void;
   /** Chosen mode, for the badge's tint. Null when unknown. */
   permissionMode: string | null;
@@ -97,12 +99,15 @@ export function Pill({
   label,
   onOpen,
   mark,
+  glyph,
   className = '',
 }: {
   label: string;
   onOpen: (anchor: HTMLElement) => void;
   /** Provider id to draw a brand mark for, or absent for a bare pill. */
   mark?: string;
+  /** Arbitrary leading element, e.g. a tinted project glyph. */
+  glyph?: React.ReactNode;
   className?: string;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -113,7 +118,7 @@ export function Pill({
       className={`pill ${className}`}
       onClick={() => ref.current && onOpen(ref.current)}
     >
-      {mark ? <ProviderMark id={mark} size={13} /> : null}
+      {glyph ?? (mark ? <ProviderMark id={mark} size={13} /> : null)}
       <span className="pill-label">{pillModelLabel(label)}</span>
       <ChevronDown size={13} strokeWidth={1.75} />
     </button>
@@ -205,6 +210,7 @@ export function Composer({
   onOpenModel,
   onOpenPermission,
   projectLabel,
+  projectGlyph,
   onOpenProject,
   permissionMode,
   attachments,
@@ -351,6 +357,7 @@ export function Composer({
           <Pill
             className="pill-project"
             label={projectLabel || 'Project'}
+            glyph={projectGlyph}
             onOpen={onOpenProject}
           />
         ) : null}

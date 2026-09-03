@@ -42,6 +42,11 @@ import {
   Copy as CopyIcon,
   PanelRight,
   Download,
+  Folder,
+  PenLine,
+  Palette,
+  Heart,
+  Sparkles,
 } from 'lucide-react';
 import type { StepIcon } from '../types';
 
@@ -75,6 +80,11 @@ export {
   CopyIcon,
   PanelRight,
   Download,
+  Folder,
+  PenLine,
+  Palette,
+  Heart,
+  Sparkles,
 };
 
 /**
