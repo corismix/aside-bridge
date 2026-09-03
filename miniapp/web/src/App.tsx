@@ -15,6 +15,7 @@ import { PermissionPicker } from './components/Pickers';
 import { ModelSheet } from './components/ModelSheet';
 import { ProjectSheet } from './components/ProjectSheet';
 import type { AsideProject } from './types';
+import { projectIcon, projectTint } from './utils/projects';
 import { CitationSheet } from './components/Citations';
 import { SessionPanel } from './components/SessionPanel';
 import { SettingsScreen } from './components/SettingsScreen';
@@ -55,6 +56,29 @@ type AuthState =
   | { phase: 'pending' }
   | { phase: 'ready'; name?: string }
   | { phase: 'failed'; reason: string };
+
+/**
+ * The project pill's tinted glyph. Takes icon + colour straight from the
+ * stored meta so the pill is right on first paint, no projects fetch.
+ */
+function ProjectPillGlyph({
+  icon,
+  color,
+}: {
+  icon?: string;
+  color?: string;
+}) {
+  const Icon = projectIcon(icon);
+  const tint = projectTint(color);
+  return (
+    <span
+      className="project-glyph project-glyph-sm"
+      style={{ color: tint.fg, background: tint.bg }}
+    >
+      <Icon size={12} strokeWidth={1.75} />
+    </span>
+  );
+}
 
 type PickerState =
   | { kind: 'none' }
@@ -135,15 +159,17 @@ export default function App() {
   const [projectId, setProjectId] = useState(
     () => localStorage.getItem(PROJECT_KEY) || '',
   );
-  const [projectLabel, setProjectLabel] = useState(() => {
-    // The label is only decoration; the id is the contract. If the stored
-    // project has since been deleted the pill still reads sanely.
+  // Icon + colour ride along so the pill can show the project's own glyph
+  // without waiting on a projects fetch. Only the id is the contract.
+  const [projectMeta, setProjectMeta] = useState<{
+    name?: string;
+    icon?: string;
+    color?: string;
+  }>(() => {
     try {
-      return (
-        JSON.parse(localStorage.getItem(PROJECT_KEY + '.label') || '') || ''
-      );
+      return JSON.parse(localStorage.getItem(PROJECT_KEY + '.meta') || '') || {};
     } catch {
-      return '';
+      return {};
     }
   });
   const [projects, setProjects] = useState<AsideProject[]>([]);
@@ -372,13 +398,15 @@ export default function App() {
   };
   const pickProject = (id: string) => {
     setProjectId(id);
-    setProjectLabel(
-      id ? (projects.find((p) => p.id === id)?.name ?? id) : '',
-    );
+    const pr = projects.find((p) => p.id === id);
+    setProjectMeta(pr ? { name: pr.name, icon: pr.icon, color: pr.color } : {});
     localStorage.setItem(PROJECT_KEY, id);
-    localStorage.setItem(PROJECT_KEY + '.label', JSON.stringify(
-      id ? (projects.find((p) => p.id === id)?.name ?? id) : '',
-    ));
+    localStorage.setItem(
+      PROJECT_KEY + '.meta',
+      JSON.stringify(
+        pr ? { name: pr.name, icon: pr.icon, color: pr.color } : {},
+      ),
+    );
     haptic('light');
     setPicker({ kind: 'none' });
   };
@@ -494,7 +522,17 @@ export default function App() {
             pills={pills}
             onOpenModel={openModel}
             onOpenPermission={openPermission}
-            projectLabel={projectLabel || 'Project'}
+            projectLabel={
+              (projectId ? projectMeta.name : '') || 'Project'
+            }
+            projectGlyph={
+              projectId ? (
+                <ProjectPillGlyph
+                  icon={projectMeta.icon}
+                  color={projectMeta.color}
+                />
+              ) : undefined
+            }
             onOpenProject={openProject}
             permissionMode={newMode}
             attachments={attachments.items}
