@@ -1,63 +1,40 @@
 /**
  * The home screen's resting state.
  *
- * The greeting is the only text on an otherwise empty screen, so a band
- * that lands wrong is very visible. It is a pure function of the hour for
- * exactly this reason: the boundaries are asserted rather than eyeballed.
+ * The hero is now Aside's empty state -- the logo, nothing else (2026-09-03:
+ * the greeting and orange mark were dropped at the owner's request). What
+ * still needs pinning: the logo renders, and the OLD greeting code must
+ * not come back. The rest of this file pins pill/error formatting and the
+ * App wiring contracts that a refactor can silently drop.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { RestCue, RestHero, greetingFor } from '../src/components/Rest';
+import { RestCue, RestHero } from '../src/components/Rest';
 import { pillModelLabel } from '../src/utils/pills';
 import { threadErrorText } from '../src/utils/format';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-function at(hour: number): Date {
-  const d = new Date(2026, 7, 2, hour, 30, 0);
-  return d;
-}
-
-describe('greetingFor', () => {
-  it('covers every hour of the day without a gap', () => {
-    for (let hour = 0; hour < 24; hour += 1) {
-      expect(greetingFor('Alex', at(hour))).toBeTruthy();
-    }
-  });
-
-  it('uses the late-night band before 5am', () => {
-    expect(greetingFor('Alex', at(1))).toBe('Up late, Alex?');
-    expect(greetingFor('Alex', at(4))).toBe('Up late, Alex?');
-  });
-
-  it('switches at each boundary', () => {
-    expect(greetingFor('Alex', at(5))).toBe('Early start, Alex');
-    expect(greetingFor('Alex', at(9))).toBe('Morning, Alex');
-    expect(greetingFor('Alex', at(12))).toBe('Afternoon, Alex');
-    expect(greetingFor('Alex', at(17))).toBe('Evening, Alex');
-    expect(greetingFor('Alex', at(21))).toBe('Still up, Alex?');
-  });
-
-  it('drops the name cleanly when there is not one', () => {
-    // No dangling comma, and no "undefined" leaking onto the screen.
-    for (const name of [undefined, '', '   ']) {
-      const text = greetingFor(name, at(13));
-      expect(text).toBe('Good afternoon');
-      expect(text).not.toContain(',');
-      expect(text).not.toContain('undefined');
-    }
-  });
-});
-
 describe('RestHero', () => {
-  it('renders the greeting as the screen heading', () => {
-    render(<RestHero name="Alex" />);
-    expect(
-      screen.getByRole('heading', { level: 1 }).textContent,
-    ).toContain('Alex');
+  it('renders the Aside logo and no greeting text', () => {
+    const { container } = render(<RestHero />);
+    expect(container.querySelector('.aside-logo-light')).not.toBeNull();
+    expect(container.querySelector('.aside-logo-dark')).not.toBeNull();
+    // The old greeting must stay gone: no heading, no stray name.
+    expect(container.querySelector('h1')).toBeNull();
+    expect(container.textContent).not.toContain('Good');
+  });
+
+  it('the hero source no longer carries greeting code', () => {
+    const src = readFileSync(
+      path.join(here, '../src/components/Rest.tsx'),
+      'utf8',
+    );
+    expect(src).not.toContain('greetingFor');
+    expect(src).not.toContain('rest-mark');
   });
 });
 

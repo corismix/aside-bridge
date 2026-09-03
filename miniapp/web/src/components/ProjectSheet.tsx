@@ -3,7 +3,9 @@
  *
  * Mirrors ModelSheet's grouped-row shape so the composer's sheets read as
  * one family. Rows carry the project's own icon and colour from the
- * desktop app (via aside.projects.list()), rendered as tinted glyph chips.
+ * desktop app (via aside.projects.list()), rendered as bare icons tinted
+ * with the project's colour -- exactly how Aside's own project menu draws
+ * them (coloured glyph, no chip).
  * Picking a project only affects the NEXT session: the CLI cannot anchor
  * a session row to a project (see server/src/projects.ts), so a mobile
  * project session is a normal session seeded with the project's workspace
@@ -26,10 +28,7 @@ function Glyph({ pr, size = 17 }: { pr: AsideProject; size?: number }) {
   const Icon = projectIcon(pr.icon);
   const tint = projectTint(pr.color);
   return (
-    <span
-      className="project-glyph"
-      style={{ color: tint.fg, background: tint.bg }}
-    >
+    <span className="project-icon" style={{ color: tint.fg }}>
       <Icon size={size} strokeWidth={1.75} />
     </span>
   );
@@ -44,10 +43,8 @@ export function ProjectSheet({ projects, current, onPick, onClose }: ProjectShee
           className={`sheet-row ${current === '' ? 'is-selected' : ''}`}
           onClick={() => onPick('')}
         >
-          <span className="sheet-row-glyph">
-            <span className="project-glyph project-glyph-none">
-              <Folder size={17} strokeWidth={1.75} />
-            </span>
+          <span className="project-icon project-icon-muted">
+            <Folder size={17} strokeWidth={1.75} />
           </span>
           <span className="sheet-row-text">
             <span className="sheet-row-title">No project</span>
@@ -63,9 +60,7 @@ export function ProjectSheet({ projects, current, onPick, onClose }: ProjectShee
             className={`sheet-row ${current === pr.id ? 'is-selected' : ''}`}
             onClick={() => onPick(pr.id)}
           >
-            <span className="sheet-row-glyph">
-              <Glyph pr={pr} />
-            </span>
+            <Glyph pr={pr} />
             <span className="sheet-row-text">
               <span className="sheet-row-title">{pr.name}</span>
               <span className="sheet-row-subtitle">{pr.workspacePath}</span>
