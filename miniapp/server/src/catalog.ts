@@ -53,9 +53,35 @@ interface ProviderSeed {
   label: string;
   /** `contextWindow` is omitted wherever the 200k default is right. */
   models: Array<{ id: string; label: string; contextWindow?: number }>;
+  /**
+   * True when the provider needs no credentials.json entry. Aside's own
+   * hosted gateway is authenticated by the app itself, so it is usable
+   * whatever the credentials file happens to contain.
+   */
+  alwaysConnected?: boolean;
+}
+
+/** `openrouter` -> `OpenRouter`, for ids that arrive without a label. */
+export function titleCaseProviderId(id: string): string {
+  const words = id.split(/[-_]+/).filter(Boolean);
+  return words
+    .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
+    .join(' ');
 }
 
 const BUILTIN: ProviderSeed[] = [
+  {
+    // Aside's hosted gateway. Model ids observed in real session
+    // transcripts; the picker labels them as the underlying models.
+    id: 'aside',
+    label: 'Aside',
+    alwaysConnected: true,
+    models: [
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+    ],
+  },
   {
     id: 'claude-code',
     label: 'Claude',
@@ -70,13 +96,15 @@ const BUILTIN: ProviderSeed[] = [
   {
     id: 'openai-codex',
     label: 'ChatGPT',
+    // Mirrors the account's accountModelCatalog: gpt-5.3-codex-spark is
+    // no longer offered, and gpt-5.6-sol is.
     models: [
+      { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
       { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
       { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
       { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'gpt-5.4', label: 'GPT-5.4' },
       { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
-      { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
     ],
   },
   {
@@ -144,12 +172,13 @@ export function buildCatalog(
   const byId = new Map<string, CatalogProvider>();
   for (const base of BUILTIN) {
     byId.set(base.id, {
-      ...base,
+      id: base.id,
+      label: base.label,
       models: base.models.map((m) => ({
         ...m,
         contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
       })),
-      connected: seedUnknown || connectedSet.has(base.id),
+      connected: base.alwaysConnected || seedUnknown || connectedSet.has(base.id),
     });
   }
 
@@ -157,7 +186,7 @@ export function buildCatalog(
   // user can name its models through config.
   for (const id of providerIds) {
     if (!byId.has(id)) {
-      byId.set(id, { id, label: id, models: [], connected: true });
+      byId.set(id, { id, label: titleCaseProviderId(id), models: [], connected: true });
     }
   }
 
@@ -171,7 +200,7 @@ export function buildCatalog(
   for (const provider of desktop) {
     byId.set(provider.id, {
       id: provider.id,
-      label: provider.label || provider.id,
+      label: provider.label || titleCaseProviderId(provider.id),
       models: provider.models.map((m) => ({
         id: m.id,
         label: m.label,
@@ -185,7 +214,7 @@ export function buildCatalog(
     const existing = byId.get(id);
     const target: CatalogProvider = existing ?? {
       id,
-      label: id,
+      label: titleCaseProviderId(id),
       models: [],
       connected: seedUnknown || connectedSet.has(id),
     };
@@ -227,7 +256,7 @@ export function buildCatalog(
     if (!ref || !ref.provider || !ref.modelId) continue;
     const target = byId.get(ref.provider) ?? {
       id: ref.provider,
-      label: ref.provider,
+      label: titleCaseProviderId(ref.provider),
       models: [],
       connected: true,
     };
@@ -247,11 +276,14 @@ export function buildCatalog(
     byId.set(ref.provider, target);
   }
 
-  // Connected providers first, then built-in order, so the picker opens on
-  // something the account can actually run.
+  // Connected providers only, then built-in order, so the picker opens on
+  // something the account can actually run. Listing providers Aside itself
+  // would not show (uncredentialed Claude/Grok) made the phone lie about
+  // what the account can use; seedUnknown already covers the read-failure
+  // case where showing everything is the safer lie.
   const order = new Map(BUILTIN.map((b, i) => [b.id, i]));
   return [...byId.values()]
-    .filter((p) => p.models.length > 0 || p.connected)
+    .filter((p) => p.connected)
     .sort((a, b) => {
       if (a.connected !== b.connected) return a.connected ? -1 : 1;
       return (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99);

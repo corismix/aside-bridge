@@ -44,9 +44,13 @@ describe('credential seeding', () => {
 describe('buildCatalog', () => {
   it('marks credentialed providers connected and sorts them first', () => {
     const catalog = buildCatalog(['xai-grok-oauth']);
-    expect(catalog[0].id).toBe('xai-grok-oauth');
-    expect(catalog[0].connected).toBe(true);
-    expect(catalog.find((p) => p.id === 'claude-code')?.connected).toBe(false);
+    expect(catalog.find((p) => p.id === 'xai-grok-oauth')?.connected).toBe(true);
+    // Aside's own gateway needs no credentials.json entry.
+    expect(catalog.find((p) => p.id === 'aside')?.connected).toBe(true);
+    // An uncredentialed provider is OMITTED, matching Aside's picker:
+    // listing Claude without credentials would claim the account can
+    // run it.
+    expect(catalog.find((p) => p.id === 'claude-code')).toBeUndefined();
   });
 
   it('uses Aside display names and model ids', () => {
@@ -61,14 +65,23 @@ describe('buildCatalog', () => {
     );
 
     expect(chatgpt.label).toBe('ChatGPT');
+    // Mirrors the account's accountModelCatalog.
     expect(chatgpt.models.map((m) => m.id)).toEqual([
+      'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'gpt-5.5',
       'gpt-5.4',
       'gpt-5.4-mini',
-      'gpt-5.3-codex-spark',
     ]);
+  });
+
+  it('shows the Aside gateway with display names', () => {
+    const catalog = buildCatalog(['openai-codex']);
+    const aside = catalog.find((p) => p.id === 'aside')!;
+    expect(aside.label).toBe('Aside');
+    expect(aside.connected).toBe(true);
+    expect(aside.models.map((m) => m.label)).toContain('GPT-5.6 Luna');
   });
 
   it('shows every built-in provider when credentials cannot be read', () => {
