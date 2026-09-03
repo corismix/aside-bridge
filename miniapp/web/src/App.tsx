@@ -12,7 +12,7 @@ import { SessionList } from './components/SessionList';
 import { Thread } from './components/Thread';
 import { Composer } from './components/Composer';
 import { PermissionPicker } from './components/Pickers';
-import { ModelSheet } from './components/ModelSheet';
+import { ModelSheet, ReasoningSheet } from './components/ModelSheet';
 import { ProjectSheet } from './components/ProjectSheet';
 import type { AsideProject } from './types';
 import { projectIcon, projectTint } from './utils/projects';
@@ -58,8 +58,10 @@ type AuthState =
   | { phase: 'failed'; reason: string };
 
 /**
- * The project pill's tinted glyph. Takes icon + colour straight from the
- * stored meta so the pill is right on first paint, no projects fetch.
+ * The project pill's glyph, drawn the way Aside draws project icons: the
+ * bare lucide icon tinted with the project's colour, no chip background.
+ * Icon + colour come from the stored meta so the pill is right on first
+ * paint, no projects fetch.
  */
 function ProjectPillGlyph({
   icon,
@@ -71,11 +73,8 @@ function ProjectPillGlyph({
   const Icon = projectIcon(icon);
   const tint = projectTint(color);
   return (
-    <span
-      className="project-glyph project-glyph-sm"
-      style={{ color: tint.fg, background: tint.bg }}
-    >
-      <Icon size={12} strokeWidth={1.75} />
+    <span className="project-icon project-icon-sm" style={{ color: tint.fg }}>
+      <Icon size={13} strokeWidth={1.75} />
     </span>
   );
 }
@@ -83,6 +82,7 @@ function ProjectPillGlyph({
 type PickerState =
   | { kind: 'none' }
   | { kind: 'model'; anchor: HTMLElement }
+  | { kind: 'effort'; anchor: HTMLElement }
   | { kind: 'permission'; anchor: HTMLElement }
   | { kind: 'project'; anchor: HTMLElement };
 
@@ -389,6 +389,10 @@ export default function App() {
     void refreshStatus();
     setPicker({ kind: 'model', anchor });
   };
+  /* Reasoning has its own pill and its own surface, as in the sidepanel:
+     the effort menu is bounded and static, so unlike the model picker it
+     does not need a status refresh on open. */
+  const openEffort = (anchor: HTMLElement) => setPicker({ kind: 'effort', anchor });
   const openPermission = (anchor: HTMLElement) =>
     setPicker({ kind: 'permission', anchor });
   const openProject = (anchor: HTMLElement) => {
@@ -427,15 +431,19 @@ export default function App() {
     onPickMode: (id: string) => void;
     onToggleConfirm: (next: boolean) => void;
   }) =>
-    picker.kind === 'model' && status ? (
+    picker.kind === 'effort' && status ? (
+      <ReasoningSheet
+        options={status.effortMenu}
+        current={current.effortId}
+        onPick={pickEffort}
+        onClose={closePicker}
+      />
+    ) : picker.kind === 'model' && status ? (
       <ModelSheet
         catalog={status.catalog}
         currentProvider={current.provider}
         currentModel={current.modelId}
-        effortOptions={status.effortMenu}
-        currentEffort={current.effortId}
         onPickModel={pickModel}
-        onPickEffort={pickEffort}
         onClose={closePicker}
         onOpenSettings={() => {
           closePicker();
@@ -500,7 +508,7 @@ export default function App() {
                 <Settings size={19} strokeWidth={1.75} />
               </button>
             </div>
-            <RestHero name={auth.phase === 'ready' ? auth.name : undefined} />
+            <RestHero />
             <RestCue count={sessions.length} onOpen={scrollToHistory} />
           </section>
           <section className="home-history" ref={historyRef}>
@@ -521,6 +529,7 @@ export default function App() {
             onSubmit={startSession}
             pills={pills}
             onOpenModel={openModel}
+            onOpenEffort={openEffort}
             onOpenPermission={openPermission}
             projectLabel={
               (projectId ? projectMeta.name : '') || 'Project'
@@ -585,6 +594,7 @@ export default function App() {
       setDraft={setDraft}
       attachments={attachments}
       openModel={openModel}
+      openEffort={openEffort}
       openPermission={openPermission}
       renderPicker={renderPicker}
     />
@@ -605,6 +615,7 @@ function ThreadScreen({
   setDraft,
   attachments,
   openModel,
+  openEffort,
   openPermission,
   renderPicker,
 }: {
@@ -630,6 +641,7 @@ function ThreadScreen({
   setDraft: (value: string) => void;
   attachments: ReturnType<typeof useAttachments>;
   openModel: (anchor: HTMLElement) => void;
+  openEffort: (anchor: HTMLElement) => void;
   openPermission: (anchor: HTMLElement) => void;
   renderPicker: (current: {
     provider: string;
@@ -644,6 +656,12 @@ function ThreadScreen({
 }) {
   const thread = useThread(sessionId);
   const scroller = useRef<HTMLDivElement>(null);
+  /*
+   * Which scroll edges have more content beyond them. Drives Aside's
+   * scroll-fade masks on .thread-scroll: content fades toward an edge
+   * only when there is actually something there to scroll to.
+   */
+  const [fades, setFades] = useState({ top: false, bottom: false });
   const [sending, setSending] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [citation, setCitation] = useState<CitationMark | null>(null);
@@ -681,10 +699,30 @@ function ThreadScreen({
     el.scrollTop = el.scrollHeight;
   }, [thread.items]);
 
+  /*
+   * Completion feedback. Aside plays a success sound when a turn ends
+   * (an account setting there); on a phone the honest equivalent is a
+   * success haptic -- the pocket is deaf and the eyes are elsewhere. It
+   * fires only on the true->false edge, so initial loads and refreshes
+   * never buzz.
+   */
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !thread.busy) haptic('success');
+    wasBusy.current = thread.busy;
+  }, [thread.busy]);
+
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    // A 4px slop so landing exactly on an edge does not leave a sliver of
+    // fade showing for nothing there.
+    const top = el.scrollTop > 4;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight > 4;
+    setFades((prev) =>
+      prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
+    );
   };
 
   const send = async () => {
@@ -831,7 +869,13 @@ function ThreadScreen({
         </button>
       </header>
 
-      <div className="thread-scroll" ref={scroller} onScroll={onScroll}>
+      <div
+        className={`thread-scroll${fades.top ? ' fade-top' : ''}${
+          fades.bottom ? ' fade-bottom' : ''
+        }`}
+        ref={scroller}
+        onScroll={onScroll}
+      >
         {thread.loading && thread.items.length === 0 ? (
           <p className="list-empty">Loading…</p>
         ) : null}
@@ -881,6 +925,7 @@ function ThreadScreen({
           onSubmit={send}
           pills={effective}
           onOpenModel={openModel}
+          onOpenEffort={openEffort}
           onOpenPermission={openPermission}
           permissionMode={thread.permissionMode}
           attachments={attachments.items}
