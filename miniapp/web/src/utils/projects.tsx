@@ -40,31 +40,31 @@ export interface ProjectTint {
 const PROJECT_COLORS: Record<string, ProjectTint> = {
   mono: {
     fg: 'var(--color-neutral-700)',
-    bg: 'color-mix(in oklch, var(--color-neutral-400) 18%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-neutral-400) 30%, transparent)',
   },
   red: {
     fg: 'var(--color-red-500)',
-    bg: 'color-mix(in oklch, var(--color-red-500) 15%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-red-500) 28%, transparent)',
   },
   pink: {
     fg: 'var(--color-pink-500)',
-    bg: 'color-mix(in oklch, var(--color-pink-500) 15%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-pink-500) 28%, transparent)',
   },
   sky: {
     fg: 'var(--color-sky-500)',
-    bg: 'color-mix(in oklch, var(--color-sky-500) 15%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-sky-500) 28%, transparent)',
   },
   emerald: {
     fg: 'var(--color-emerald-500)',
-    bg: 'color-mix(in oklch, var(--color-emerald-500) 15%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-emerald-500) 28%, transparent)',
   },
   yellow: {
     fg: 'var(--color-amber-500)',
-    bg: 'color-mix(in oklch, var(--color-amber-500) 18%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-amber-500) 30%, transparent)',
   },
   lime: {
     fg: 'var(--color-green-500)',
-    bg: 'color-mix(in oklch, var(--color-green-500) 15%, transparent)',
+    bg: 'color-mix(in oklch, var(--color-green-500) 28%, transparent)',
   },
 };
 
