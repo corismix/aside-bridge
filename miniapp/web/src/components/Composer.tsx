@@ -54,6 +54,9 @@ export interface ComposerProps {
   onSubmit: () => void;
   pills: PillState;
   onOpenModel: (anchor: HTMLElement) => void;
+  /** The effort pill's own picker -- separate from the model sheet, as in
+      the sidepanel's thinking-level menu. */
+  onOpenEffort: (anchor: HTMLElement) => void;
   onOpenPermission: (anchor: HTMLElement) => void;
   /**
    * Project picker, home composer only: project choice applies to the
@@ -174,10 +177,10 @@ function AttachmentChip({
 }
 
 /**
- * The permission badge next to `+`.
- *
- * Orange when the session is on full access, matching Aside -- that is the
- * one state worth catching out of the corner of your eye.
+ * The permission control in Aside's meta row: a quiet pill under the card
+ * carrying the shield glyph and the mode name, tinted orange only while the
+ * session is on full access -- that is the one state worth catching out of
+ * the corner of your eye.
  */
 export function PermissionButton({
   mode,
@@ -188,15 +191,20 @@ export function PermissionButton({
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   const full = mode === 'full-access';
+  const label = mode
+    ? mode.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase())
+    : 'Access';
   return (
     <button
       ref={ref}
       type="button"
-      className={`round-button ghost permission-button ${full ? 'is-full' : ''}`}
+      className={`pill pill-permission ${full ? 'is-full' : ''}`}
       aria-label="Permission"
       onClick={() => ref.current && onOpen(ref.current)}
     >
-      <PermissionGlyph mode={mode || 'guard'} size={16} />
+      <PermissionGlyph mode={mode || 'guard'} size={15} />
+      <span className="pill-label">{label}</span>
+      <ChevronDown size={13} strokeWidth={1.75} />
     </button>
   );
 }
@@ -208,6 +216,7 @@ export function Composer({
   onSubmit,
   pills,
   onOpenModel,
+  onOpenEffort,
   onOpenPermission,
   projectLabel,
   projectGlyph,
@@ -267,131 +276,152 @@ export function Composer({
       {/* The task list sits ON TOP of the composer, as in the desktop app. */}
       {above}
 
-      {blockedReason ? (
-        <p className="composer-blocked">{blockedReason}</p>
-      ) : null}
-
-      {attachments.length ? (
-        <div className="chip-row">
-          {attachments.map((attachment) => (
-            <AttachmentChip
-              key={attachment.key}
-              attachment={attachment}
-              onRemove={() => onRemoveAttachment(attachment.key)}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      <textarea
-        ref={textarea}
-        className="composer-input"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={
-          variant === 'home' ? 'Chat with Aside…' : 'Reply to Aside…'
-        }
-        rows={1}
-        disabled={blocked}
-      />
-
-      <div className="composer-actions">
-        {/*
-          A real file input, hidden behind the button. Telegram's webview is
-          a normal WebView, so the OS picker (and the phone's gallery and
-          camera) works exactly as it does in a browser -- no Telegram API
-          involved.
-        */}
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          accept={ACCEPT}
-          className="visually-hidden"
-          onChange={(event) => {
-            const files = Array.from(event.target.files || []);
-            if (files.length) onAddFiles(files);
-            // Reset so re-picking the same file fires change again.
-            event.target.value = '';
-          }}
-        />
-        <button
-          type="button"
-          className="round-button ghost"
-          aria-label="Attach files"
-          onClick={() => {
-            haptic('light');
-            fileInput.current?.click();
-          }}
-        >
-          <Plus size={17} strokeWidth={1.75} />
-        </button>
-
-        <PermissionButton mode={permissionMode} onOpen={onOpenPermission} />
-
-        {/*
-          Pills sit immediately after the round buttons, with the slack
-          pushed to the right of them -- the arrangement Claude's own
-          composer uses. Right-aligning them (the old order) put the free
-          space between the buttons and the pills, which read as two
-          disconnected clusters rather than one row of controls.
-        */}
-        {/*
-          Both screens carry the same control row. The reply composer used
-          to drop the model pill and push it into a separate bottom bar,
-          so sending a message visibly changed the furniture -- a different
-          card, a different row, the model somewhere else. Claude's own app
-          keeps one composer and only swaps the placeholder, which is why
-          its thread does not feel like a second app.
-        */}
-        {context ? (
-          <ContextRing used={context.used} window={context.window} />
+      {/*
+        The card carries ONLY the conversation surface: attachments, the
+        input, and the two round controls tucked into its bottom corners.
+        Everything that identifies or configures the turn -- project,
+        permission, model, effort -- moved to the meta row UNDER the card,
+        which is exactly how the sidepanel composer is laid out.
+      */}
+      <div className="composer-card">
+        {blockedReason ? (
+          <p className="composer-blocked">{blockedReason}</p>
         ) : null}
-        <Pill
-          label={pills.modelLabel}
-          onOpen={onOpenModel}
-          mark={pills.provider}
-        />
-        {onOpenProject ? (
-          <Pill
-            className="pill-project"
-            label={projectLabel || 'Project'}
-            glyph={projectGlyph}
-            onOpen={onOpenProject}
+
+        {attachments.length ? (
+          <div className="chip-row">
+            {attachments.map((attachment) => (
+              <AttachmentChip
+                key={attachment.key}
+                attachment={attachment}
+                onRemove={() => onRemoveAttachment(attachment.key)}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        <div className="composer-body">
+          <textarea
+            ref={textarea}
+            className="composer-input"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={
+              variant === 'home' ? 'Chat with Aside…' : 'Reply to Aside…'
+            }
+            rows={1}
+            disabled={blocked}
           />
-        ) : null}
-        <span className="composer-spacer" />
 
-        {/*
-          Stop sits to the LEFT of send while a turn runs, matching the
-          desktop composer's small black rounded square. It is a real kill:
-          the server SIGTERMs the `aside exec` child it owns, by PID.
-        */}
-        {streaming && onStop ? (
-          <button
-            type="button"
-            className="round-button stop"
-            onClick={() => {
-              haptic('medium');
-              onStop();
-            }}
-            disabled={stopping}
-            aria-label="Stop"
-          >
-            {stopping ? <Spinner size={14} /> : <StopSquare size={14} />}
-          </button>
-        ) : null}
+          {/*
+            Corner controls, as in the sidepanel: attach at bottom-left,
+            stop/send at bottom-right. The input's bottom padding reserves
+            their row, so long drafts never flow underneath them.
+          */}
+          <div className="composer-corner is-left">
+            {/**
+              * A real file input, hidden behind the button. Telegram's webview
+              * is a normal WebView, so the OS picker (and the phone's gallery
+              * and camera) works exactly as it does in a browser -- no
+              * Telegram API involved.
+              */}
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              accept={ACCEPT}
+              className="visually-hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files || []);
+                if (files.length) onAddFiles(files);
+                // Reset so re-picking the same file fires change again.
+                event.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              className="round-button ghost"
+              aria-label="Attach files"
+              onClick={() => {
+                haptic('light');
+                fileInput.current?.click();
+              }}
+            >
+              <Plus size={16} strokeWidth={1.75} />
+            </button>
+          </div>
 
-        <button
-          type="button"
-          className="round-button send"
-          onClick={submit}
-          disabled={!canSend}
-          aria-label="Send"
-        >
-          {busy ? <Spinner size={16} /> : <ArrowUp size={17} strokeWidth={2} />}
-        </button>
+          <div className="composer-corner is-right">
+            {/**
+              * Stop sits to the LEFT of send while a turn runs, matching the
+              * desktop composer. It is a real kill: the server SIGTERMs the
+              * `aside exec` child it owns, by PID.
+              */}
+            {streaming && onStop ? (
+              <button
+                type="button"
+                className="round-button stop"
+                onClick={() => {
+                  haptic('medium');
+                  onStop();
+                }}
+                disabled={stopping}
+                aria-label="Stop"
+              >
+                {stopping ? <Spinner size={14} /> : <StopSquare size={14} />}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="round-button send"
+              onClick={submit}
+              disabled={!canSend}
+              aria-label="Send"
+            >
+              {busy ? <Spinner size={16} /> : <ArrowUp size={17} strokeWidth={2} />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/*
+        The meta row: identity and settings as quiet 28px pills, 0.8rem
+        text, transparent until pressed -- the sidepanel composer's row
+        under the card. Left grows: project, then permission (orange on
+        full access). Right: context ring, model, effort.
+
+        The effort pill opens its own reasoning picker, matching the
+        sidepanel's separate model and thinking-level menus.
+      */}
+      <div className="composer-meta">
+        <div className="composer-meta-group">
+          {onOpenProject ? (
+            <Pill
+              className="pill-project"
+              label={projectLabel || 'Project'}
+              glyph={projectGlyph}
+              onOpen={onOpenProject}
+            />
+          ) : null}
+          <PermissionButton mode={permissionMode} onOpen={onOpenPermission} />
+        </div>
+        <div className="composer-meta-group">
+          {context ? (
+            <ContextRing used={context.used} window={context.window} />
+          ) : null}
+          <Pill
+            label={pills.modelLabel}
+            onOpen={onOpenModel}
+            mark={pills.provider}
+          />
+          <Pill
+            className="pill-effort"
+            label={pills.effortLabel}
+            onOpen={onOpenEffort}
+          />
+        </div>
       </div>
     </div>
   );

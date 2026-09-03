@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { BottomBar, Composer } from '../src/components/Composer';
 import type { PillState } from '../src/components/Composer';
 
@@ -112,20 +112,52 @@ describe('the pill cannot widen the app', () => {
     expect(ruleBody(componentsCss, '.pill-effort')).toContain('flex: none');
   });
 
-  it('the composer carries exactly one pill: the model', () => {
-    // Reasoning moved into the model sheet, so the action row has a single
-    // pill to fit. That is what stopped the label ellipsising to
-    // "DeepSee…" inside a 336px card.
+  it('the composer carries its pills in the meta row', () => {
+    // Aside's composer keeps permission/model/effort (and project on home)
+    // in a row UNDER the card. Every pill must live there and keep the
+    // shrink/ellipsize contract, or a long model id pans the app sideways
+    // again -- the exact regression this file exists to catch.
     const { container } = renderComposer();
     const found = Array.from(container.querySelectorAll('.pill'));
-    expect(found.length).toBe(1);
-    expect(found[0].classList.contains('pill-effort')).toBe(false);
+    // permission + model + effort; project only when onOpenProject is set.
+    expect(found.length).toBe(3);
+    for (const pill of found) {
+      expect(pill.closest('.composer-meta')).not.toBeNull();
+    }
+    // The meta-row override must not re-introduce a fixed width.
+    expect(ruleBody(componentsCss, '.composer-meta .pill')).not.toContain(
+      'flex: none',
+    );
   });
 
-  it('neither surface still renders an effort pill', () => {
-    for (const { container } of [renderComposer(), renderBar()]) {
-      expect(container.querySelector('.pill-effort')).toBeNull();
-    }
+  it('the effort pill opens its own reasoning picker; the bottom bar still has none', () => {
+    // Two pills, two surfaces -- Aside's model selector and thinking-level
+    // menus are separate, and the composer meta row copies that. The bar
+    // stays read-only on reasoning.
+    const onOpenEffort = vi.fn();
+    const { container } = render(
+      <Composer
+        variant="reply"
+        value=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        pills={pills}
+        onOpenModel={vi.fn()}
+        onOpenEffort={onOpenEffort}
+        onOpenPermission={vi.fn()}
+        permissionMode="guard"
+        attachments={[]}
+        onAddFiles={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+      />,
+    );
+    const effort = container.querySelector<HTMLButtonElement>('.pill-effort');
+    expect(effort).not.toBeNull();
+    fireEvent.click(effort!);
+    expect(onOpenEffort).toHaveBeenCalledTimes(1);
+
+    const { container: bar } = renderBar();
+    expect(bar.querySelector('.pill-effort')).toBeNull();
   });
 
   it('the long model id renders inside .pill-label', () => {

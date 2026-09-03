@@ -56,90 +56,179 @@
 /* --- composer ------------------------------------------------------------ */
 
 /*
- * ONE composer, both screens.
+ * ONE composer, both screens, in Aside's own layout: a flat 20px card that
+ * carries only the conversation surface (attachments, input, and the two
+ * round corner controls), with the project/permission/model/effort pills
+ * on a quiet meta row UNDER the card. The sidepanel composer is built
+ * exactly this way, which is what stops a thread feeling like a second
+ * app.
  *
- * The reply composer used to be a tighter, flatter variant of this, so
- * sending the first message visibly swapped the furniture: a different
- * card, a different control row, the model pill relocated to a separate
- * bottom bar. Claude's app keeps a single composer and changes only the
- * placeholder, which is what stops a thread feeling like a second app.
+ * The card has no border: the hairline ring is a box-shadow, so the
+ * focus-within deepening never shifts layout by a pixel.
  */
 .composer {
-  background: var(--surface-primary);
-  border: var(--hairline) solid var(--border-surface);
-  border-radius: 28px;
-  padding: 16px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+}
+
+.composer-card {
+  background: var(--surface-primary);
+  border-radius: 20px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   box-shadow:
+    0 0 0 var(--hairline) var(--border-surface),
     0 1px 2px oklch(14.5% 0 0 / 0.04),
-    0 10px 28px -10px oklch(14.5% 0 0 / 0.12);
+    0 10px 24px -14px oklch(14.5% 0 0 / 0.16);
+  transition: box-shadow var(--duration) var(--ease-out);
 }
 
-.composer .composer-input {
-  font-size: 1.06rem;
-  line-height: 1.45;
-  letter-spacing: -0.008em;
-  padding-inline: 4px;
-}
-
-.composer .composer-input::placeholder {
-  color: var(--surface-tertiary-foreground);
-}
-
-.composer .composer-actions {
-  gap: 5px;
-}
-
-/* Soft filled capsules, matching the round buttons beside them. */
-.composer .pill {
-  height: 32px;
-  padding: 0 6px;
-  gap: 3px;
-  background: var(--muted);
-}
-
-.composer .pill:active {
-  background: var(--accent);
-}
-
-.composer .round-button.ghost {
-  background: var(--muted);
-}
-
-.dark .composer {
+.composer-card:focus-within {
   box-shadow:
+    0 0 0 var(--hairline) var(--border-surface-strong),
+    0 2px 4px oklch(14.5% 0 0 / 0.05),
+    0 14px 32px -14px oklch(14.5% 0 0 / 0.22);
+}
+
+.dark .composer-card {
+  box-shadow:
+    0 0 0 var(--hairline) var(--border-surface),
     0 1px 2px oklch(0% 0 0 / 0.3),
-    0 10px 28px -10px oklch(0% 0 0 / 0.45);
+    0 10px 24px -14px oklch(0% 0 0 / 0.45);
+}
+
+.dark .composer-card:focus-within {
+  box-shadow:
+    0 0 0 var(--hairline) var(--border-surface-strong),
+    0 2px 4px oklch(0% 0 0 / 0.35),
+    0 14px 32px -14px oklch(0% 0 0 / 0.55);
 }
 
 /*
- * No geometry override for the reply variant.
- *
- * It used to be squatter and less rounded than the home composer, which is
- * the single biggest reason the thread read as a different screen rather
- * than the same one with history in it. The only thing that varies between
- * the two now is the placeholder text.
+ * The corner row: attach at bottom-left, stop/send at bottom-right, the
+ * round controls sitting on the card's 4px padding like the sidepanel's
+ * bottom-1.25 placement. The input's bottom padding reserves this row, so
+ * a long draft scrolls above the buttons instead of under them.
+ */
+.composer-body {
+  position: relative;
+}
+
+.composer-corner {
+  position: absolute;
+  bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-corner.is-left {
+  left: 5px;
+}
+
+.composer-corner.is-right {
+  right: 5px;
+}
+
+.composer-corner .round-button {
+  width: 30px;
+  height: 30px;
+}
+
+.composer-corner .round-button.send {
+  width: 34px;
+  height: 34px;
+}
+
+/*
+ * The meta row under the card: 28px pills, 0.8rem text, transparent until
+ * pressed, chevrons at half strength. Aside's exact recipe, sized up one
+ * step for thumb reach. The left group grows so the right cluster keeps
+ * its natural width; the groups themselves can shrink when a long model
+ * id or project name needs the room.
+ */
+.composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  min-width: 0;
+}
+
+.composer-meta-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.composer-meta-group:first-child {
+  flex: 1 1 0;
+}
+
+.composer-meta .pill {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.composer-meta .pill:active {
+  background: var(--muted);
+}
+
+/* The trailing chevron sits at half strength, as in the sidepanel. */
+.composer-meta .pill > svg:last-child {
+  opacity: 0.5;
+}
+
+/* Full access is the one state that gets colour: the orange warning. */
+.pill-permission.is-full {
+  color: var(--permission);
+}
+
+/*
+ * Under ~340px the identity labels give way before the model pill does:
+ * glyph chips still say which project and which permission, and the full
+ * names are one tap away in their pickers.
+ */
+@media (max-width: 339px) {
+  .pill-permission .pill-label,
+  .pill-project .pill-label {
+    display: none;
+  }
+}
+
+/*
+ * No geometry override for the reply variant. The only thing that varies
+ * between home and reply is the placeholder text.
  */
 
 .composer-input {
   width: 100%;
-  padding: 2px 4px;
-  font-size: var(--text-base);
-  line-height: var(--leading-snug);
+  /*
+   * The 40px bottom padding reserves the corner-button row (a 30px circle
+   * on a 5px inset) inside the card, so multiline drafts never flow under
+   * the attach or send buttons.
+   */
+  padding: 8px 10px 40px;
+  /*
+   * 16px exactly: Aside's input is 14px, but anything under 16px makes
+   * iOS zoom the page on focus, so this stays at the zoom threshold.
+   */
+  font-size: 1rem;
+  line-height: 1.45;
+  letter-spacing: -0.008em;
   max-height: 180px;
   overflow-y: auto;
 }
 
 .composer-input::placeholder {
   color: var(--surface-tertiary-foreground);
-}
-
-.composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .composer-spacer {
@@ -193,29 +282,25 @@
   background: var(--muted);
 }
 
-/* Project glyphs: the desktop app's project icon + colour, as a small
-   tinted chip. Foreground and background are inline-styled per project;
-   these rules only fix shape and alignment. */
-.project-glyph {
+/*
+ * Project icons: the bare lucide icon tinted with the project's colour,
+ * exactly how Aside's project menu draws them (no chip background -- the
+ * colour IS the identity). Foreground colour is inline-styled per
+ * project; these rules only fix shape and alignment.
+ */
+.project-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
   flex: none;
 }
 
-.project-glyph-sm {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-md);
-  margin-right: 2px;
+.project-icon-sm {
+  margin-right: 1px;
 }
 
-/* The "No project" row keeps the neutral folder without a chip wash. */
-.project-glyph-none {
-  background: transparent;
+.project-icon-muted {
+  color: var(--muted-foreground);
 }
 
 .pill {
@@ -479,6 +564,53 @@
   overflow-y: auto;
   padding: 16px 14px 20px;
   background: var(--background);
+  /*
+   * Scroll-edge fades, Aside's scroll-fade-effect recipe: the CONTENT is
+   * masked as it approaches an edge (not an overlay gradient parked on
+   * top), and only on the edges where more content actually exists. App
+   *.tsx toggles .fade-top / .fade-bottom from the scroll position; the
+   * no-class case is fully unmasked so a short thread never fades.
+   */
+  --fade-h: 24px;
+}
+
+.thread-scroll.fade-top:not(.fade-bottom) {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-h)
+  );
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-h));
+}
+
+.thread-scroll.fade-bottom:not(.fade-top) {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--fade-h)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--fade-h)),
+    transparent
+  );
+}
+
+.thread-scroll.fade-top.fade-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-h),
+    #000 calc(100% - var(--fade-h)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-h),
+    #000 calc(100% - var(--fade-h)),
+    transparent
+  );
 }
 
 .thread {
@@ -502,7 +634,7 @@
 
 /* The answer is plain page content -- no bubble, no card. */
 .answer {
-  font-size: var(--text-base);
+  font-size: var(--text-thread);
 }
 
 .system-error {
@@ -834,21 +966,34 @@
   }
 }
 
+/*
+ * Group labels, as Aside's dropdown-menu-label: small, medium weight,
+ * letter-spaced, muted -- a section header, not a title.
+ */
 .popover-title {
-  padding: 8px 10px 6px;
-  font-size: var(--text-sm);
+  padding: 6px 10px 2px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
   color: var(--muted-foreground);
 }
 
+/*
+ * Menu rows, as Aside's dropdown-menu-radio-item: 14px text on a short
+ * row with its own radius, icon muted and label foreground, pressed
+ * state a plain accent wash. Selection is indicated by the trailing
+ * check alone -- Aside never recolours the text of the chosen row.
+ */
 .popover-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 9px 10px;
+  min-height: 30px;
+  padding: 6px 10px;
   border-radius: var(--radius-lg);
   text-align: left;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   color: var(--popover-foreground);
   transition: background var(--duration) var(--ease-out);
 }
@@ -858,12 +1003,17 @@
   background: var(--muted);
 }
 
+/* Leading icons sit muted, exactly as Aside's menu glyphs do. */
 .popover-row-lead,
 .popover-row-trail {
   display: inline-flex;
   align-items: center;
-  color: var(--secondary-foreground);
+  color: var(--muted-foreground);
   flex: none;
+}
+
+.popover-row-trail {
+  color: var(--popover-foreground);
 }
 
 .popover-row-label {
@@ -935,9 +1085,33 @@
 /* --- markdown ------------------------------------------------------------ */
 
 .md {
-  font-size: var(--text-base);
+  font-size: var(--text-thread);
   line-height: var(--leading-relaxed);
   word-break: break-word;
+}
+
+/*
+ * Aside streams each new markdown block in with a blur-to-sharp rise (its
+ * sd-blurIn / sd-slideUp keyframes). React only mounts new DOM nodes for
+ * newly arrived blocks -- existing blocks are patched in place -- so the
+ * animation fires once per block, not once per streaming tick.
+ */
+.is-streaming > * {
+  animation: md-blur-in 0.3s var(--ease-out) both;
+}
+
+@keyframes md-blur-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-streaming > * {
+    animation: none;
+  }
 }
 
 .md > :first-child {
@@ -996,6 +1170,8 @@
   padding: 1.5px 5px;
   border-radius: var(--radius-md);
   background: var(--muted);
+  /* Streamdown's inline-code rule: long tokens wrap anywhere. */
+  overflow-wrap: anywhere;
 }
 
 .md pre {
@@ -1013,9 +1189,16 @@
   line-height: var(--leading-relaxed);
 }
 
+/*
+ * Links, as Streamdown draws them: text in --brand-content, the underline
+ * itself in --brand, so the line reads slightly stronger than the words.
+ */
 .md a {
-  color: var(--brand);
-  text-decoration: none;
+  color: var(--brand-content);
+  text-decoration: underline;
+  text-decoration-color: var(--brand);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
 }
 
 /* An image inside an answer: full column width, same frame as a shot in
@@ -1209,10 +1392,11 @@
 
 /* --- permission control -------------------------------------------------- */
 
-/* Orange when the session can do anything, exactly as the sidepanel does. */
-.permission-button.is-full {
-  color: var(--permission);
-}
+/*
+ * Orange when the session can do anything, exactly as the sidepanel does.
+ * (The rule itself lives on .pill-permission.is-full in the composer
+ * section; this dead selector was the old round-badge treatment.)
+ */
 
 /* The bottom-bar label is a button now; it must not look like one. */
 .permission {
@@ -1231,15 +1415,16 @@
   gap: 9px;
   width: 100%;
   padding: 7px 10px;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   color: var(--popover-foreground);
 }
 
 /* Aside's green pill switch. */
+/* Aside's switch: h-5 w-10, emerald when on. */
 .switch {
   position: relative;
-  width: 38px;
-  height: 22px;
+  width: 40px;
+  height: 20px;
   border-radius: 999px;
   background: var(--muted);
   flex: none;
@@ -1254,8 +1439,8 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: #fff;
   box-shadow: 0 1px 2px oklch(0% 0 0 / 0.25);
@@ -1263,7 +1448,7 @@
 }
 
 .switch.is-on .switch-knob {
-  transform: translateX(16px);
+  transform: translateX(20px);
 }
 
 /*
@@ -2479,37 +2664,58 @@
   min-height: 34px;
 }
 
+/*
+ * Aside's empty state: the logo, centred and muted, nothing else. Sizes
+ * match the sidepanel's size-16 / max-sm:size-12 pair.
+ */
 .rest-hero {
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  padding: 32px 16px;
   /* A touch above true centre. Dead-centre reads as low here, because
-     the docked composer already weights the bottom of the screen; 8vh
-     was an over-correction that left the mark stranded at a third. */
-  padding-bottom: 2vh;
+     the docked composer already weights the bottom of the screen. */
+  padding-bottom: calc(32px + 2vh);
+  color: var(--muted-foreground);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.rest-mark {
-  color: var(--mark-warm);
-  flex: none;
+.aside-logo-wrap {
+  display: inline-flex;
+  line-height: 0;
 }
 
-.rest-greeting {
-  margin: 0;
-  font-family: var(--font-serif);
-  /* Scales with the phone rather than a fixed size, so a long name on a
-     small screen does not wrap into two lines of display type. */
-  font-size: clamp(1.55rem, 6.8vw, 2rem);
-  font-weight: var(--font-weight-normal);
-  letter-spacing: -0.014em;
-  line-height: 1.15;
-  text-align: center;
-  text-wrap: balance;
-  color: var(--foreground);
+.aside-logo {
+  display: inline-flex;
+}
+
+.aside-logo svg {
+  width: 64px;
+  height: 64px;
+}
+
+@media (max-width: 639px) {
+  .aside-logo svg {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/*
+ * Theme switching by attribute, as tokens.css does -- the miniapp sets
+ * data-theme on <html> and never a .dark class.
+ */
+[data-theme="dark"] .aside-logo-light,
+.dark .aside-logo-light {
+  display: none;
+}
+
+[data-theme="dark"] .aside-logo-dark,
+.dark .aside-logo-dark {
+  display: inline-flex;
 }
 
 .rest-cue {
@@ -2612,28 +2818,30 @@
 .sheet-group {
   /*
    * `flex: none` is load-bearing. `.sheet-body` is a flex column, so these
-   * cards were shrinkable by default -- with a long model list the first
-   * card was compressed and, because it also clips, the last row was
-   * sliced in half and the card just ended mid-name. Groups keep their
-   * natural height; the BODY is what scrolls.
+   * groups were shrinkable by default -- with a long model list the first
+   * group was compressed and, because it also clips, the last row was
+   * sliced in half. Groups keep their natural height; the BODY is what
+   * scrolls.
+   *
+   * Aside's menus are NOT cards-in-cards: flat rows directly on the panel
+   * surface, separated by group labels, no per-row hairlines. The group
+   * is just a stack now; each row carries its own radius and pressed
+   * wash.
    */
   flex: none;
-  background: var(--surface-primary);
-  border: var(--hairline) solid var(--border-surface);
-  border-radius: var(--radius-2xl);
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .sheet-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 13px 14px;
+  padding: 9px 10px;
   text-align: left;
-  border-bottom: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
   transition: background var(--duration) var(--ease-out);
 }
 
@@ -2666,8 +2874,8 @@
 }
 
 .sheet-row-title {
-  font-size: var(--text-lg);
-  letter-spacing: -0.012em;
+  font-size: var(--text-thread);
+  letter-spacing: -0.008em;
   color: var(--foreground);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2675,18 +2883,18 @@
 }
 
 .sheet-row-subtitle {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sheet-row.is-selected .sheet-row-title,
-.sheet-row.is-selected .sheet-row-subtitle,
-.sheet-row.is-selected .sheet-row-trailing {
-  color: var(--mark-warm);
-}
+/*
+ * Selection is indicated by the trailing check alone, as in Aside's menus
+ * -- the chosen row's text stays neutral. (This replaced an old rule that
+ * recoloured the selected row's text to --mark-warm.)
+ */
 
 .sheet-row-trailing {
   flex: none;
@@ -2724,11 +2932,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  height: 40px;
-  border-radius: var(--radius-xl);
-  background: var(--surface-primary);
+  padding: 0 10px;
+  height: 36px;
+  border-radius: var(--radius-lg);
   border: var(--hairline) solid var(--border-surface);
+  background: transparent;
   color: var(--muted-foreground);
 }
 
