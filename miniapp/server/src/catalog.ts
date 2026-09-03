@@ -62,7 +62,12 @@ interface ProviderSeed {
 }
 
 /** `openrouter` -> `OpenRouter`, for ids that arrive without a label. */
+const LABEL_OVERRIDES: Record<string, string> = {
+  openrouter: 'OpenRouter',
+};
+
 export function titleCaseProviderId(id: string): string {
+  if (LABEL_OVERRIDES[id]) return LABEL_OVERRIDES[id];
   const words = id.split(/[-_]+/).filter(Boolean);
   return words
     .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
@@ -200,7 +205,12 @@ export function buildCatalog(
   for (const provider of desktop) {
     byId.set(provider.id, {
       id: provider.id,
-      label: provider.label || titleCaseProviderId(provider.id),
+      // desktop.ts falls back to the raw id when models.json has no name;
+      // a label that IS the id is no label at all.
+      label:
+        provider.label && provider.label !== provider.id
+          ? provider.label
+          : titleCaseProviderId(provider.id),
       models: provider.models.map((m) => ({
         id: m.id,
         label: m.label,
