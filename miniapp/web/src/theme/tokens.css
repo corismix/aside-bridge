@@ -180,6 +180,12 @@
   --ultrabrowse-pink: var(--color-pink-500);
 }
 
+/*
+ * Activated by telegram.ts/applyTheme(), which sets data-theme on <html>
+ * from the Telegram client colorScheme (falls back to prefers-color-scheme
+ * outside Telegram). `.dark` is kept so dev tools and tests can force it.
+ */
+[data-theme="dark"],
 .dark {
   color-scheme: dark;
 
