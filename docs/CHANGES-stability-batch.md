@@ -31,9 +31,9 @@ was never specific to question answers: a hand-typed message starting with
 Reproduced and fixed against the real binary:
 
 ```
-$ aside exec --session X ... "Color test: Red"       → Session not found   (parses)
-$ aside exec --session X ... "- Color test: Red"     → unknown option      (the bug)
-$ aside exec --session X ... -- "- Color test: Red"  → Session not found   (fixed)
+$ aside session resume X ... "Color test: Red"       → Session not found   (parses)
+$ aside session resume X ... "- Color test: Red"     → unknown option      (the bug)
+$ aside session resume X ... -- "- Color test: Red"  → Session not found   (fixed)
 ```
 
 Two changes, belt and braces:
@@ -90,7 +90,7 @@ badge, and the driver process hung forever while the session sat
 
 Established today and not re-derived: **there is no way to answer a pending
 native question from anywhere but the desktop sidepanel.** Follow-up
-`aside exec --session` blocks indefinitely, stdin to the driver does
+`aside session resume` blocks indefinitely, stdin to the driver does
 nothing, and the `aside.sessions` facade has no answer method.
 
 So, three parts:

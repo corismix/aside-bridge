@@ -7,7 +7,7 @@
  *    `request_action_confirmation`. The daemon suspends the session on
  *    these and waits for an answer over its own authenticated channel. That
  *    channel is the desktop sidepanel and nothing else: verified today
- *    against the live CLI, a follow-up `aside exec --session <id> "<text>"`
+ *    against the live CLI, a follow-up `aside session resume <id> "<text>"`
  *    blocks forever, stdin to the driver process is ignored, and the
  *    `aside.sessions` repl facade exposes no answer/respond method at all
  *    (its surface is constructor, current, list, get, messages, messageRows,

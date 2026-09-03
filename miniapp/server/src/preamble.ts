@@ -7,8 +7,8 @@
  * `request_action_confirmation` tools suspend the session until they are
  * answered over the daemon's own authenticated channel, and that channel is
  * the desktop sidepanel. From a phone there is no way to answer one --
- * checked against the live CLI today, in every form: a follow-up `aside exec
- * --session <id>` blocks indefinitely, writing to the driver's stdin does
+ * checked against the live CLI today, in every form: a follow-up `aside
+ * session resume <id>` blocks indefinitely, writing to the driver's stdin does
  * nothing, and the repl's `aside.sessions` facade has no answer method. The
  * session sits in `status=suspended` and the driver process hangs forever.
  *

@@ -34,7 +34,7 @@ TG_LIMIT = 4000  # telegram hard cap is 4096
 # request_action_confirmation tool suspends until the answer arrives over
 # the daemon's own authenticated channel, and that channel is the Aside
 # desktop sidepanel and nothing else. From a phone there is no way to
-# answer one: a follow-up `aside exec --session <id>` blocks forever,
+# answer one: a follow-up `aside session resume <id>` blocks forever,
 # stdin to the driver is ignored, and the `aside.sessions` repl facade
 # has no answer/respond method. The session is then unrecoverable -- a
 # real user lost one exactly this way.
@@ -675,14 +675,20 @@ def run_aside(prompt, session_id=None, model=None, effort=None):
     log("EXEC start session=%s model=%s effort=%s"
         % (session_id or "-", model or "-", effort or "-"))
     t0 = time.time()
-    cmd = [ASIDE_CLI, "exec"]
-    if session_id:
-        cmd += ["--session", session_id]
+    # `exec` creates a session; the current CLI resumes an existing one via
+    # the session subcommand. The model/effort flags are global and must stay
+    # before that subcommand. `--` keeps dash-leading Telegram messages
+    # positional instead of treating them as CLI options.
+    cmd = [ASIDE_CLI]
     if model:
         cmd += ["-m", MODEL_IDS.get(model, model)]
     if effort:
         cmd += ["--effort", effort]
-    cmd.append(prompt)
+    if session_id:
+        cmd += ["session", "resume", session_id]
+    else:
+        cmd += ["exec"]
+    cmd += ["--", prompt]
     try:
         p = subprocess.run(
             cmd, capture_output=True, text=True, timeout=EXEC_TIMEOUT
@@ -2355,7 +2361,7 @@ def worker_loop():
 
 
 def _reap_stale_exec(session_id):
-    """Kill any leftover 'aside exec --session <sid>' process still
+    """Kill any leftover 'aside session resume <sid>' process still
     running from before this restart.
 
     Without this, a restart while a turn is still mid-flight (crash,
@@ -2373,7 +2379,7 @@ def _reap_stale_exec(session_id):
         return
     try:
         out = subprocess.run(
-            ["pgrep", "-f", "aside exec --session %s " % session_id],
+            ["pgrep", "-f", "aside session resume %s " % session_id],
             capture_output=True, text=True)
         pids = [p for p in out.stdout.split() if p.isdigit()]
         for pid in pids:

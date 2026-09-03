@@ -646,8 +646,7 @@ describe('a dash-leading prompt still reaches the agent', () => {
 
     expect(captured).toHaveLength(1);
     assertTerminated(captured[0], text);
-    // The session flags still precede it, unaffected.
-    expect(captured[0].slice(0, 3)).toEqual(['exec', '--session', 's1']);
+    expect(captured[0].slice(4, 7)).toEqual(['session', 'resume', 's1']);
   });
 
   it('terminates options before a new session’s prompt', async () => {
@@ -697,13 +696,13 @@ describe('a dash-leading prompt still reaches the agent', () => {
     const { runner } = capturingRunner(captured, '/nonexistent');
     runner.send('s1', { text: 'hello there', model: 'm', effort: 'low' });
     expect(captured[0]).toEqual([
-      'exec',
-      '--session',
-      's1',
       '-m',
       'm',
       '--effort',
       'low',
+      'session',
+      'resume',
+      's1',
       '--',
       'hello there',
     ]);

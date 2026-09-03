@@ -163,6 +163,10 @@ try:
     CALLS.clear()
     b.run_aside("hi", model="")
     check("an empty model omits -m entirely", "-m" not in CALLS[-1])
+    b.run_aside("-leading", session_id="session123", model="m", effort="low")
+    check("existing sessions use session resume",
+          CALLS[-1][1:] == ["-m", "m", "--effort", "low", "session",
+                            "resume", "session123", "--", "-leading"])
 finally:
     b.subprocess.run = saved_run
 

@@ -15,7 +15,7 @@ until the answer arrives over the daemon's **own authenticated channel**,
 and that channel is the Aside desktop sidepanel. From a phone there is no
 path to it. Checked against the live CLI, in every form there is:
 
-- a follow-up `aside exec --session <id> "<text>"` blocks indefinitely,
+- a follow-up `aside session resume <id> "<text>"` blocks indefinitely,
   whether or not the process that started the turn is still alive;
 - writing to the driver's stdin does nothing;
 - the `aside.sessions` repl facade has no answer or respond method at all

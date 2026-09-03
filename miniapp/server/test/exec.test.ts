@@ -133,13 +133,13 @@ describe('per-session serialisation', () => {
     });
     expect(spawned[0].cmd).toBe('/fake/aside');
     expect(spawned[0].args).toEqual([
-      'exec',
-      '--session',
-      'sessA',
       '-m',
       'claude-sonnet-5',
       '--effort',
       'low',
+      'session',
+      'resume',
+      'sessA',
       // End-of-options, so a prompt that begins with a dash reaches the
       // agent instead of being parsed as a flag. See `PROMPT_TERMINATOR`.
       '--',
