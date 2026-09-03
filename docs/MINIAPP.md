@@ -54,6 +54,19 @@ same one-person allowlist the chat bridge uses, and mints a 24-hour JWT that
 every API call and the WebSocket must carry. The bot token never leaves the
 process and is never logged.
 
+**Recovery.** Mobile sessions are ephemeral CLI sessions, and the daemon can
+expire one (or a reboot can take it away) between messages. When a send hits
+a session whose transcript directory is gone, the server does not fail: it
+spawns a replacement session seeded with a bounded slice of the old
+conversation — the last 12 visible turns, capped at 12,000 characters, read
+from the old transcript on disk (`recovery.ts`) — so the reply still has
+context. The response carries `recoveredFrom`, and the UI re-points the
+thread at the replacement. The same mechanism backs the explicit **Continue
+in a new session** affordance on a stuck question card
+(`POST /api/sessions/:id/recover`, see
+[NATIVE-QUESTIONS.md](NATIVE-QUESTIONS.md)). The Python chat bridge
+(`bridge.py`) performs its own equivalent recovery and reports it in-chat.
+
 At a glance:
 
 ```
@@ -247,7 +260,7 @@ Read these before deciding something is broken.
 ```
 miniapp/
   server/src/
-    app.ts          Fastify routes: auth, reads, writes, SPA host
+    app.ts          Fastify routes: auth, reads, writes, projects, recovery, SPA host
     exec.ts         aside exec children, the queue, stop, suspend watchdog
     ws.ts           the live thread socket
     thread.ts       transcript -> the items the UI draws
@@ -255,6 +268,9 @@ miniapp/
     facade.ts       aside repl, with a TTL + in-flight cache
     statedb.ts      state.db, read-only
     questions.ts    ask_user_question / [[QUESTION]] cards
+    recovery.ts     replacement sessions for expired ones: bounded transcript continuity
+    projects.ts     Aside project list + per-project context for new sessions
+    mobile-policy.json  instruction lines both the Python bridge and the Mini App inject
     errors.ts       provider failures -> Aside's alert card
     todos.ts        write_todos replay
     settings.ts     defaults for new sessions
@@ -263,5 +279,6 @@ miniapp/
   web/src/
     App.tsx         the shell: home, thread, settings
     components/     the sidepanel, recreated
+    utils/          project pills and glyphs for the project picker
     theme/          Aside's design tokens
 ```
