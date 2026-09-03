@@ -24,6 +24,7 @@ import {
   sha256File,
   userSuppliedCloudflared,
 } from '../src/tunnel.js';
+import { parseTailscaleUrl, TailscaleTunnel } from '../src/tailscale.js';
 
 /** Real `cloudflared tunnel --url` banner output. */
 const BANNER = `
@@ -145,6 +146,41 @@ describe('Tunnel', () => {
     tunnel.stop();
   });
 
+  it('runs a named tunnel against its stable origin and token file', async () => {
+    const child = fakeChild();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'miniapp-named-'));
+    const tokenPath = path.join(root, 'tunnel.token');
+    fs.writeFileSync(tokenPath, 'secret-token\n', { mode: 0o600 });
+    let args: string[] = [];
+    const urls: string[] = [];
+    const tunnel = new Tunnel({
+      port: 8790,
+      mode: 'named',
+      publicUrl: 'https://aside.example.com/',
+      tokenPath,
+      binDir: root,
+      onUrl: (url) => urls.push(url),
+      spawnFn: ((_: string, nextArgs: string[]) => {
+        args = nextArgs;
+        return child;
+      }) as any,
+      downloadFn: async () => {},
+    });
+
+    await tunnel.start();
+    expect(args).toEqual([
+      'tunnel',
+      '--no-autoupdate',
+      'run',
+      '--token',
+      'secret-token',
+    ]);
+    expect(urls).toEqual(['https://aside.example.com']);
+    expect(tunnel.url).toBe('https://aside.example.com');
+    tunnel.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
   it('reports a rotated hostname exactly once per change', async () => {
     const child = fakeChild();
     const urls: string[] = [];
@@ -208,6 +244,38 @@ describe('Tunnel', () => {
 
     child.emit('exit', 1);
     expect(tunnel.url).toBeNull();
+    tunnel.stop();
+  });
+});
+
+describe('TailscaleTunnel', () => {
+  it('parses the stable Funnel hostname from status JSON', () => {
+    expect(parseTailscaleUrl('{"DNSName":"damocles.example.ts.net."}')).toBe(
+      'https://damocles.example.ts.net',
+    );
+  });
+
+  it('configures a background Funnel and reports its stable URL', async () => {
+    const calls: string[][] = [];
+    const urls: string[] = [];
+    const tunnel = new TailscaleTunnel({
+      port: 8790,
+      onUrl: (url) => urls.push(url),
+      runFn: async (args) => {
+        calls.push(args);
+        return args[0] === 'funnel' && args[1] === 'status'
+          ? '{"DNSName":"damocles.example.ts.net."}'
+          : '';
+      },
+    });
+
+    await tunnel.start();
+    expect(calls).toEqual([
+      ['funnel', '--bg', '--yes', 'http://127.0.0.1:8790'],
+      ['funnel', 'status', '--json'],
+    ]);
+    expect(urls).toEqual(['https://damocles.example.ts.net']);
+    expect(tunnel.url).toBe('https://damocles.example.ts.net');
     tunnel.stop();
   });
 });

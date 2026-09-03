@@ -7,7 +7,22 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
     />
     <meta name="color-scheme" content="light dark" />
-    <title>Aside Mobile</title>
+    <meta name="theme-color" content="#f5f5f4" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Aside" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon-128.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <title>Aside</title>
+    <script>
+      (function () {
+        var preference = localStorage.getItem('miniapp.theme');
+        if (preference === 'light' || preference === 'dark') {
+          document.documentElement.dataset.theme = preference;
+        }
+      })();
+    </script>
     <!--
       Telegram's webview bridge. Only meaningful inside Telegram; in a plain
       browser it is simply absent and the app falls back to a #initData=

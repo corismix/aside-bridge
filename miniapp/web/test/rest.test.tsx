@@ -23,6 +23,11 @@ describe('RestHero', () => {
     const { container } = render(<RestHero />);
     expect(container.querySelector('.aside-logo-light')).not.toBeNull();
     expect(container.querySelector('.aside-logo-dark')).not.toBeNull();
+    const styles = readFileSync(
+      path.join(here, '../src/theme/components.css'),
+      'utf8',
+    );
+    expect(styles).toMatch(/\.aside-logo-dark\s*\{\s*display:\s*none;/);
     // The old greeting must stay gone: no heading, no stray name.
     expect(container.querySelector('h1')).toBeNull();
     expect(container.textContent).not.toContain('Good');

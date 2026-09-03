@@ -14,6 +14,8 @@ miniapp-secret.json
 # committed them.
 miniapp-settings.json
 miniapp-soft-confirm.json
+pwa-pairing.json
+pwa-push.json
 .env
 .env.*
 

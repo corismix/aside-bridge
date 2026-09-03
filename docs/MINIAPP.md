@@ -1,7 +1,7 @@
-# The Aside Mini App
+# The Aside Mini App and PWA
 
-The full Aside sidepanel UI, inside Telegram, driving the Aside agent
-running on your Mac. Three documents cover it: this one (how it works, and
+The full Aside sidepanel UI, available inside Telegram or as an installable
+standalone PWA, driving the Aside agent running on your Mac. Three documents cover it: this one (how it works, and
 how to set it up), [AUDIT.md](AUDIT.md) (the security review), and
 [ASIDE-DESIGN.md](ASIDE-DESIGN.md) (the extracted sidepanel design system,
 for any look-and-feel work).
@@ -52,9 +52,10 @@ lands.
 
 **Auth.** Telegram signs every Mini App launch with an HMAC over your bot
 token. The server validates that signature, checks the user id against the
-same one-person allowlist the chat bridge uses, and mints a 24-hour JWT that
-every API call and the WebSocket must carry. The bot token never leaves the
-process and is never logged.
+same one-person allowlist the chat bridge uses, and mints a 24-hour JWT. The
+Telegram client carries it as a bearer token; the standalone PWA obtains one
+with a one-time local pairing code and keeps it in an HttpOnly session cookie.
+The bot token never leaves the process and is never logged.
 
 **Recovery.** Mobile sessions are ephemeral CLI sessions, and the daemon can
 expire one (or a reboot can take it away) between messages. When a send hits
@@ -72,9 +73,9 @@ in a new session** affordance on a stuck question card
 At a glance:
 
 ```
-Telegram app (phone)
-  └─ Mini App webview ──HTTPS──▶ cloudflared tunnel
-                                    └─▶ 127.0.0.1:8790  Node server
+Telegram webview or installed PWA
+  └─ HTTPS ──▶ Tailscale Funnel or Cloudflare tunnel
+                    └─▶ 127.0.0.1:8790  Node server
                                           ├─ spawns  aside exec        (turns)
                                           ├─ spawns  aside repl        (facade, cached)
                                           ├─ reads   state.db          (read-only)
@@ -82,8 +83,9 @@ Telegram app (phone)
 ```
 
 The Python chat bridge (`bridge.py`) is a separate service on the same
-machine, sharing the same `config.json` and the same Aside daemon. Neither
-depends on the other.
+machine, sharing the same `config.json` and the same Aside daemon. Telegram
+and the PWA are parallel clients; enabling the PWA does not remove or change
+the Telegram path.
 
 ---
 
@@ -106,9 +108,10 @@ python3 miniapp/setup-miniapp.py
 ```
 
 That checks Node and finds the bridge config, runs `npm install && npm run
-build`, installs a launchd service (`com.aside.miniapp`), starts a
-Cloudflare quick tunnel, registers the bot's menu button at the tunnel
-URL, and prints the URL.
+build`, installs a launchd service (`com.aside.miniapp`), starts a public
+HTTPS tunnel when selected, registers the bot's menu button at the tunnel URL
+when requested, and prints the URL. Tailscale Funnel is recommended for a stable
+free URL; Cloudflare Quick Tunnel and named tunnels remain available.
 
 The menu button is the **Aside** entry next to the message box, and
 registering it is what gives you something to tap. The wizard offers it
@@ -140,10 +143,14 @@ both, and the launchd service sets it explicitly.
 | key | default | what it does |
 |---|---|---|
 | `port` | `8790` | loopback port to serve on |
-| `tunnel` | `none` | `cloudflared` to publish an HTTPS URL |
+| `tunnel` | `none` | `tailscale` for a stable free `ts.net` URL, or `cloudflared` |
+| `tunnel_mode` | `quick` | Cloudflare only: `quick` rotates; `named` uses your stable hostname |
+| `public_url` | *(unset)* | HTTPS origin for named tunnels and PWA pairing instructions |
+| `cloudflared_token_path` | *(unset)* | Private file containing the named tunnel token |
 | `auto_register_menu` | `false` | point the bot's menu button at the tunnel URL |
 | `state_dir` | next to `config.json` | where the JWT secret, settings and cloudflared live |
 | `cloudflared_path` | *(unset)* | use your own binary instead of downloading one |
+| `tailscale_path` | *(unset)* | path to the Tailscale CLI; its macOS backend must be running |
 | `log_path` / `log_max_bytes` | `miniapp.log`, 5 MB | server log and its rotation cap |
 
 A top-level `models` section can add providers or models to the picker, and
@@ -161,7 +168,28 @@ bridgemon miniapp start | stop | restart | logs
 bridgemon status          # bridge and Mini App together
 ```
 
-Open Telegram, tap the **Aside** button next to the message box.
+Open Telegram, tap the **Aside** button next to the message box, or open the
+public URL in Safari/Chrome. With Tailscale Funnel, the URL is a stable
+`https://<machine>.<tailnet>.ts.net` hostname.
+
+### Standalone PWA pairing
+
+The PWA uses the same server and features as the Telegram Mini App. It does
+not require an App Store install. Open the public HTTPS URL in a browser, then
+on the Mac run:
+
+```bash
+bridgemon miniapp pair
+```
+
+Enter the displayed one-time code in the browser. The code expires after ten
+minutes and can only be consumed once. The browser then uses an HttpOnly
+session cookie; the pairing code and JWT are never placed in the URL.
+
+From the app's Settings screen, enable Task notifications to register Web
+Push. Push messages say only that Aside finished a task or needs attention;
+tapping one opens the relevant session. Telegram remains available as a
+second client.
 
 ### Running a second instance
 
@@ -239,10 +267,14 @@ Read these before deciding something is broken.
   phone.
 - **Your Mac has to be awake and online.** The server and the tunnel run on
   it. Asleep is offline.
-- **The tunnel URL changes on every restart.** Quick tunnels are ephemeral.
-  The server re-registers the menu button at the new hostname each time it
-  rotates, so it self-heals — but a saved link goes stale. For a fixed URL,
-  set up a named Cloudflare tunnel with your own domain.
+- **Quick-tunnel URLs change on every restart.** The server re-registers the
+  menu button at the new hostname each time it rotates, so Telegram self-heals
+  — but a saved PWA link goes stale. Use `tunnel_mode: "named"` with your own
+  Cloudflare hostname for a fixed PWA URL.
+- **Tailscale Funnel requires the Tailscale macOS backend.** The CLI configures
+  Funnel, but the Tailscale app/system extension must be installed, signed in,
+  and running in the background. Its window does not need to stay visible.
+  Funnel is public, so keep the PWA pairing code private.
 - **One bot, one Mini App.** The menu button is bot-wide, so a second
   machine using the same token takes the button from the first. Make a
   second bot with @BotFather if you want two.

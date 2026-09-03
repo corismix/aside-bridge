@@ -5,6 +5,7 @@ import { buildInitDataFields, signInitData } from '../../scripts/sign-initdata.m
 import { buildServer } from '../src/app.js';
 import { loadConfig, loadOrCreateJwtSecret } from '../src/config.js';
 import { mintToken } from '../src/auth.js';
+import { defaultPairingPath, PairingStore } from '../src/pairing.js';
 import { FAKE_BOT_TOKEN, OWNER_ID, makeTestEnv, type TestEnv } from './helpers.js';
 
 let env: TestEnv;
@@ -109,6 +110,35 @@ describe('POST /api/auth', () => {
     expect(codes.slice(0, 10).every((c) => c === 401)).toBe(true);
     expect(codes.at(-1)).toBe(429);
   });
+
+  it('pairs a browser once and restores the session from its cookie', async () => {
+    const config = loadConfig();
+    const pairing = new PairingStore(defaultPairingPath(config.miniapp.stateDir), secret);
+    const code = pairing.create();
+    const paired = await app.inject({
+      method: 'POST',
+      url: '/api/auth/pair',
+      payload: { code: ` ${code.toLowerCase()} ` },
+    });
+    expect(paired.statusCode).toBe(200);
+    const cookie = paired.headers['set-cookie'];
+    expect(cookie).toContain('aside_session=');
+
+    const session = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie: String(cookie).split(';')[0] },
+    });
+    expect(session.statusCode).toBe(200);
+    expect(session.json().user.id).toBe(OWNER_ID);
+
+    const reused = await app.inject({
+      method: 'POST',
+      url: '/api/auth/pair',
+      payload: { code },
+    });
+    expect(reused.statusCode).toBe(401);
+  });
 });
 
 describe('bearer token gate', () => {
@@ -164,6 +194,39 @@ describe('bearer token gate', () => {
     });
     expect(res.statusCode).toBe(401);
     expect(res.json().reason).toBe('forbidden');
+  });
+});
+
+describe('standalone PWA push registration', () => {
+  it('exposes a VAPID key and stores then removes a subscription', async () => {
+    const token = await authToken();
+    const config = await app.inject({
+      method: 'GET',
+      url: '/api/push/config',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(config.statusCode).toBe(200);
+    expect(config.json().publicKey).toMatch(/^[A-Za-z0-9_-]+$/);
+
+    const subscription = {
+      endpoint: 'https://push.example.test/subscription/1',
+      keys: { p256dh: 'public-key', auth: 'auth-key' },
+    };
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/push/subscription',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { subscription },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const removed = await app.inject({
+      method: 'DELETE',
+      url: '/api/push/subscription',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { endpoint: subscription.endpoint },
+    });
+    expect(removed.statusCode).toBe(200);
   });
 });
 

@@ -5,6 +5,7 @@
 import jwt from 'jsonwebtoken';
 
 export const TOKEN_TTL_SECONDS = 24 * 60 * 60;
+export const SESSION_COOKIE = 'aside_session';
 
 export interface SessionClaims {
   sub: string;
@@ -64,4 +65,29 @@ export function bearerFrom(header: string | undefined): string | undefined {
   if (!header) return undefined;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   return match ? match[1].trim() : undefined;
+}
+
+/** Read a named cookie without exposing unrelated cookie values to callers. */
+export function cookieFrom(
+  header: string | undefined,
+  name = SESSION_COOKIE,
+): string | undefined {
+  for (const part of String(header || '').split(';')) {
+    const at = part.indexOf('=');
+    if (at < 0 || part.slice(0, at).trim() !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(at + 1).trim()) || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+export function sessionCookie(token: string, secure: boolean): string {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${TOKEN_TTL_SECONDS}; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
+}
+
+export function clearSessionCookie(secure: boolean): string {
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
 }

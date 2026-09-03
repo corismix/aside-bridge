@@ -7,12 +7,21 @@ import { fileURLToPath } from 'node:url';
 import { buildServer } from './app.js';
 import { loadConfig, loadOrCreateJwtSecret } from './config.js';
 import { MenuSync, Tunnel, defaultBinDir } from './tunnel.js';
+import { TailscaleTunnel } from './tailscale.js';
 import { makeCrashHandler, makeSignalHandler } from './shutdown.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  if (config.miniapp.tunnel === 'cloudflared' && config.miniapp.tunnelMode === 'named') {
+    if (!config.miniapp.publicUrl || !config.miniapp.cloudflaredTokenPath) {
+      throw new Error(
+        'named cloudflared mode requires miniapp.public_url and ' +
+          'miniapp.cloudflared_token_path',
+      );
+    }
+  }
   const jwtSecret = loadOrCreateJwtSecret(config.secretPath);
   const webDist =
     process.env.MINIAPP_WEB_DIST || path.resolve(here, '../../web/dist');
@@ -20,7 +29,7 @@ async function main(): Promise<void> {
   // Declared up here so the status route can read the tunnel's CURRENT
   // hostname: a quick tunnel rotates it while we run, so anything captured
   // at boot goes stale.
-  let tunnel: Tunnel | null = null;
+  let tunnel: Tunnel | TailscaleTunnel | null = null;
 
   const { app } = await buildServer(config, {
     webDist,
@@ -41,7 +50,7 @@ async function main(): Promise<void> {
 
   let menu: MenuSync | null = null;
 
-  if (config.miniapp.tunnel === 'cloudflared') {
+  if (config.miniapp.tunnel !== 'none') {
     if (config.miniapp.autoRegisterMenu) {
       // Owns retries and drift repair. A single fire-and-forget call used
       // to live inline here, and losing that one call (network not up yet
@@ -58,28 +67,35 @@ async function main(): Promise<void> {
       );
     }
 
-    tunnel = new Tunnel({
-      port: config.port,
-      binDir: defaultBinDir(config.miniapp.stateDir),
-      cloudflaredPath: config.miniapp.cloudflaredPath || undefined,
-      log: (message) => app.log.info(message),
-      onUrl: (url) => {
-        app.log.info(`public url: ${url}`);
-        // Re-runs on every hostname rotation, which is what keeps an
-        // ephemeral quick-tunnel usable as a menu button target.
-        menu?.setTarget(url);
-      },
-      onHealthy: (url) => {
-        // The tunnel is provably reachable from the public internet, so
-        // this is the right moment to confirm Telegram agrees about where
-        // to send people. `reconcile` reads first and only writes on a
-        // genuine mismatch, which closes the last gap -- a write that
-        // returned ok but did not stick -- without turning the health
-        // probe into a write loop.
-        menu?.setTarget(url);
-        void menu?.reconcile();
-      },
-    });
+    const onUrl = (url: string) => {
+      app.log.info(`public url: ${url}`);
+      menu?.setTarget(url);
+      void menu?.reconcile();
+    };
+
+    if (config.miniapp.tunnel === 'cloudflared') {
+      tunnel = new Tunnel({
+        port: config.port,
+        mode: config.miniapp.tunnelMode,
+        publicUrl: config.miniapp.publicUrl || undefined,
+        tokenPath: config.miniapp.cloudflaredTokenPath || undefined,
+        binDir: defaultBinDir(config.miniapp.stateDir),
+        cloudflaredPath: config.miniapp.cloudflaredPath || undefined,
+        log: (message) => app.log.info(message),
+        onUrl,
+        onHealthy: (url) => {
+          menu?.setTarget(url);
+          void menu?.reconcile();
+        },
+      });
+    } else {
+      tunnel = new TailscaleTunnel({
+        port: config.port,
+        tailscalePath: config.miniapp.tailscalePath || undefined,
+        log: (message) => app.log.info(message),
+        onUrl,
+      });
+    }
     tunnel.start().catch((err) => {
       app.log.error(`tunnel failed to start: ${err.message}`);
     });

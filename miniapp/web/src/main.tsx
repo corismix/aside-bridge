@@ -7,6 +7,12 @@ import './theme/base.css';
 import './theme/components.css';
 import App from './App';
 
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js');
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

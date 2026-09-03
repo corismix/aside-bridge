@@ -4,8 +4,8 @@
 Run:  python3 miniapp/setup-miniapp.py
 
 Installs the Mini App server alongside the existing chat bridge. The only
-real prerequisite is Node 20+; everything else -- the cloudflared tunnel
-binary included -- is fetched by the server itself at runtime.
+real prerequisite is Node 20+. A Tailscale Funnel or cloudflared tunnel can
+provide the public HTTPS endpoint.
 
 Idempotent: safe to re-run any time to reconfigure. This never touches
 setup.py, install.sh, or the running bridge.
@@ -189,15 +189,51 @@ def configure(config_path):
         port = DEFAULT_PORT
 
     say()
-    say("  %sA Telegram Mini App must be reachable over public HTTPS."
-        % DIM)
-    say("  cloudflared gives you that with no account and no extra")
-    say("  install -- the server downloads it on first run.%s" % RESET)
-    use_tunnel = ask_yes_no("  Manage a cloudflared tunnel automatically?",
-                            default=True)
+    say("  %sThe PWA must be reachable over public HTTPS.%s" % (DIM, RESET))
+    say("  Tailscale Funnel gives you a stable free ts.net URL and does not")
+    say("  require buying a domain. Cloudflare Quick Tunnel remains available")
+    say("  for temporary URLs.%s" % RESET)
+    provider = ask(
+        "  Tunnel provider (tailscale/cloudflared/none)",
+        section.get("tunnel", "tailscale"),
+    ).lower()
+    if provider not in ("tailscale", "cloudflared", "none"):
+        warn("  Unknown provider -- using tailscale")
+        provider = "tailscale"
+
+    use_tunnel = provider != "none"
+
+    tunnel_mode = "quick"
+    public_url = ""
+    token_path = ""
+    if provider == "cloudflared":
+        say()
+        say("  %sFor a PWA you can use a stable named tunnel instead of the%s" % (DIM, RESET))
+        say("  random quick-tunnel URL. It requires a Cloudflare tunnel, a")
+        say("  hostname on a domain in your Cloudflare account, and its token.")
+        if ask_yes_no("  Use a stable named tunnel?", default=False):
+            tunnel_mode = "named"
+            public_url = ask("  Public HTTPS URL", section.get("public_url", ""))
+            token_path = os.path.expanduser(
+                ask("  Path to the Cloudflare tunnel token", section.get("cloudflared_token_path", ""))
+            )
+            if not public_url.startswith("https://") or not token_path:
+                warn("  A named tunnel needs an https URL and token path; keeping quick mode")
+                tunnel_mode = "quick"
+                public_url = ""
+                token_path = ""
 
     cloudflared_path = ""
-    if use_tunnel:
+    tailscale_path = ""
+    if provider == "tailscale":
+        existing = shutil.which("tailscale")
+        if existing:
+            tailscale_path = existing
+            ok("Tailscale CLI at %s" % existing)
+        else:
+            warn("Tailscale CLI was not found on PATH")
+            tailscale_path = ask("  Path to the Tailscale CLI", "")
+    elif provider == "cloudflared":
         existing = shutil.which("cloudflared")
         say()
         say("  %sThe server downloads a pinned cloudflared release and"
@@ -240,13 +276,26 @@ def configure(config_path):
 
     section.update({
         "port": port,
-        "tunnel": "cloudflared" if use_tunnel else "none",
+        "tunnel": provider,
+        "tunnel_mode": tunnel_mode,
         "auto_register_menu": bool(auto_menu),
     })
+    if public_url:
+        section["public_url"] = public_url.rstrip("/")
+    else:
+        section.pop("public_url", None)
+    if token_path:
+        section["cloudflared_token_path"] = token_path
+    else:
+        section.pop("cloudflared_token_path", None)
     if cloudflared_path:
         section["cloudflared_path"] = cloudflared_path
     else:
         section.pop("cloudflared_path", None)
+    if tailscale_path:
+        section["tailscale_path"] = tailscale_path
+    else:
+        section.pop("tailscale_path", None)
     section.setdefault("state_dir", os.path.dirname(config_path))
     config["miniapp"] = section
     write_config(config_path, config)
@@ -341,6 +390,7 @@ def health_check(port, attempts=20):
 _TUNNEL_RESERVED = {"api", "www", "dash", "developers", "update",
                     "protocol-v2", "region1", "region2"}
 _TUNNEL_RE = re.compile(r"https://([a-z0-9-]+)\.trycloudflare\.com")
+_TAILSCALE_RE = re.compile(r"https://[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net\.?")
 
 
 def is_quick_tunnel_url(url):
@@ -375,6 +425,22 @@ def find_tunnel_url(log_paths, attempts=30):
                 pass
         time.sleep(2)
     return None
+
+
+def find_tailscale_url(section):
+    """Read the stable Funnel hostname from the Tailscale CLI."""
+    command = section.get("tailscale_path") or shutil.which("tailscale") or "tailscale"
+    try:
+        output = subprocess.check_output(
+            [command, "funnel", "status", "--json"],
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = _TAILSCALE_RE.search(output)
+    return match.group(0).rstrip(".") if match else None
 
 
 # --- main ----------------------------------------------------------------
@@ -413,7 +479,14 @@ def main():
         sys.exit(1)
 
     url = None
-    if section.get("tunnel") == "cloudflared":
+    if section.get("tunnel") == "tailscale":
+        say("  %swaiting for Tailscale Funnel...%s" % (DIM, RESET))
+        url = find_tailscale_url(section)
+        if url:
+            ok("public URL: %s" % url)
+        else:
+            warn("no Tailscale Funnel URL yet -- ensure the app is running and Funnel is enabled")
+    elif section.get("tunnel") == "cloudflared" and section.get("tunnel_mode") != "named":
         say("  %swaiting for the tunnel (first run downloads cloudflared)"
             "...%s" % (DIM, RESET))
         url = find_tunnel_url([out_log, err_log])
@@ -425,7 +498,13 @@ def main():
     say()
     say("%s  Done.%s" % (GREEN + BOLD, RESET))
     say()
-    if section.get("tunnel") != "cloudflared":
+    if section.get("tunnel") == "tailscale":
+        say("  Tailscale Funnel provides the public URL. The Mac Tailscale")
+        say("  backend must stay running, but its window can be hidden.")
+        if url and section.get("auto_register_menu"):
+            say("  Open Telegram and tap the %sAside%s button next to the message box."
+                % (BOLD, RESET))
+    elif section.get("tunnel") != "cloudflared":
         say("  The tunnel is off, so there is no public HTTPS URL and")
         say("  Telegram cannot reach this server yet. The Mini App needs")
         say("  one: re-run this wizard and say yes to the tunnel, or point")
@@ -459,11 +538,17 @@ def main():
             say("      %s(this URL dies on the next restart)%s"
                 % (DIM, RESET))
     say()
-    say("  %sNote: a quick tunnel's URL changes on every restart. The"
-        % DIM)
-    say("  server re-registers the menu button when it does (if that is")
-    say("  enabled). For a URL that never moves, set up a named tunnel")
-    say("  with your own domain and point miniapp at it instead.%s" % RESET)
+    if section.get("tunnel") == "tailscale":
+        say("  %sTailscale Funnel keeps this ts.net URL stable across restarts.%s"
+            % (DIM, RESET))
+    elif section.get("tunnel_mode") == "named":
+        say("  %sStable named tunnel: %s%s" % (DIM, section.get("public_url"), RESET))
+    else:
+        say("  %sNote: a quick tunnel's URL changes on every restart. The"
+            % DIM)
+        say("  server re-registers the menu button when it does (if that is")
+        say("  enabled). For a URL that never moves, re-run setup and choose")
+        say("  a named tunnel with your own domain.%s" % RESET)
     say()
     say("  Manage it from the same place as the bridge:")
     say("    %sbridgemon status            both services at a glance%s"

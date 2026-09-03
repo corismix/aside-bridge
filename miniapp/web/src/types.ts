@@ -422,7 +422,7 @@ export interface StatusResponse {
   /** Connection facts for the settings screen. Nothing sensitive here. */
   service: {
     version: string;
-    tunnel: 'cloudflared' | 'none';
+    tunnel: 'cloudflared' | 'tailscale' | 'none';
     tunnelUrl: string | null;
     port: number;
     asideReachable: boolean;

@@ -22,7 +22,7 @@
   "style": "formal",
   "miniapp": {
     "port": 8790,
-    "tunnel": "cloudflared",
+    "tunnel": "tailscale",
     "auto_register_menu": true
   }
 }

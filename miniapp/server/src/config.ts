@@ -99,8 +99,14 @@ const DEFAULT_MODEL_ALIASES: Record<string, string> = {
 
 /** The `miniapp` section of the bridge config. All of it is optional. */
 export interface MiniappSection {
-  /** `"cloudflared"` manages a public HTTPS tunnel; `"none"` stays local. */
-  tunnel: 'cloudflared' | 'none';
+  /** A public HTTPS tunnel provider, or `none` for local-only serving. */
+  tunnel: 'cloudflared' | 'tailscale' | 'none';
+  /** `quick` keeps the legacy random URL; `named` uses public_url. */
+  tunnelMode: 'quick' | 'named';
+  /** Stable origin used by the standalone PWA and notification links. */
+  publicUrl: string;
+  /** Locally stored token/config for a named tunnel, never committed. */
+  cloudflaredTokenPath: string;
   /**
    * Register the Telegram menu button at the tunnel URL.
    *
@@ -117,6 +123,8 @@ export interface MiniappSection {
    * (audit M-6), rather than a flag that turns the check off.
    */
   cloudflaredPath: string;
+  /** Optional path to the Tailscale CLI used to configure Funnel. */
+  tailscalePath: string;
   logPath: string;
   /** Cap on the log file before it is rotated to `<name>.1`. */
   logMaxBytes: number;
@@ -315,14 +323,22 @@ export function loadConfig(): MiniappConfig {
    * carries the bot token.
    */
   const tunnelOverride = process.env.MINIAPP_TUNNEL;
-  const wantsTunnel =
-    tunnelOverride === 'none'
-      ? false
-      : tunnelOverride === 'cloudflared' || section.tunnel === 'cloudflared';
+  const configuredTunnel =
+    section.tunnel === 'tailscale' || section.tunnel === 'cloudflared'
+      ? section.tunnel
+      : 'none';
+  const tunnel =
+    tunnelOverride === 'none' || tunnelOverride === 'cloudflared' ||
+    tunnelOverride === 'tailscale'
+      ? tunnelOverride
+      : configuredTunnel;
   const menuOverride = process.env.MINIAPP_AUTO_REGISTER_MENU;
 
   const miniapp: MiniappSection = {
-    tunnel: wantsTunnel ? 'cloudflared' : 'none',
+    tunnel,
+    tunnelMode: section.tunnel_mode === 'named' ? 'named' : 'quick',
+    publicUrl: String(section.public_url || '').replace(/\/+$/, ''),
+    cloudflaredTokenPath: expandHome(String(section.cloudflared_token_path || '')),
     // Never defaulted on, and always off when the env says so. See
     // MiniappSection.
     autoRegisterMenu:
@@ -334,6 +350,9 @@ export function loadConfig(): MiniappConfig {
     cloudflaredPath: expandHome(
       String(process.env.MINIAPP_CLOUDFLARED_PATH ||
         section.cloudflared_path || ''),
+    ),
+    tailscalePath: expandHome(
+      String(process.env.MINIAPP_TAILSCALE_PATH || section.tailscale_path || ''),
     ),
     logPath: expandHome(
       String(section.log_path || path.join(stateDir, 'miniapp.log')),

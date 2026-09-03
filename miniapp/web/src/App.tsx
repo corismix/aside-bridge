@@ -19,6 +19,7 @@ import { projectIcon, projectTint } from './utils/projects';
 import { CitationSheet } from './components/Citations';
 import { SessionPanel } from './components/SessionPanel';
 import { SettingsScreen } from './components/SettingsScreen';
+import { PairingScreen } from './components/PairingScreen';
 import { RestCue, RestHero } from './components/Rest';
 import { StreamFooter, estimateTokens } from './components/StreamFooter';
 import { TodoSection } from './components/TodoSection';
@@ -39,6 +40,7 @@ import {
   stashDevInitData,
 } from './telegram';
 import type { CatalogProvider, SessionRow, StatusResponse } from './types';
+import { inTelegram } from './telegram';
 
 /**
  * A thread on the navigation stack.
@@ -187,14 +189,17 @@ export default function App() {
 
   // --- auth ---------------------------------------------------------------
   useEffect(() => {
-    initTelegram();
+    if (inTelegram()) initTelegram();
     applyTheme();
     const off = onThemeChanged(applyTheme);
     stashDevInitData(location.hash);
 
     const raw = readInitData();
     if (!raw) {
-      setAuth({ phase: 'failed', reason: 'Open this from Telegram.' });
+      api.session().then(
+        (res) => setAuth({ phase: 'ready', name: res.user.firstName }),
+        () => setAuth({ phase: 'failed', reason: 'Pair this browser from the Mac.' }),
+      );
       return off;
     }
     api.auth(raw).then(
@@ -270,6 +275,16 @@ export default function App() {
     },
     [attachments],
   );
+
+  // Push notification clicks carry the session id so the standalone app
+  // opens the relevant thread after its cookie has been restored.
+  useEffect(() => {
+    if (auth.phase !== 'ready' || stack.length) return;
+    const sessionId = new URLSearchParams(location.search).get('session');
+    if (!sessionId) return;
+    openThread({ id: sessionId });
+    history.replaceState(null, '', location.pathname);
+  }, [auth.phase, openThread, stack.length]);
 
   /** Back: out of a subagent to its parent, or out of the last thread home. */
   const goBack = useCallback(() => {
@@ -373,6 +388,9 @@ export default function App() {
     );
   }
   if (auth.phase === 'failed') {
+    if (!inTelegram()) {
+      return <PairingScreen onPaired={(name) => setAuth({ phase: 'ready', name })} />;
+    }
     return (
       <div className="boot">
         <p className="boot-title">Can’t sign in</p>
@@ -474,7 +492,15 @@ export default function App() {
   // its own back affordance, which is how Aside treats it too.
   if (settingsOpen) {
     return (
-      <SettingsScreen status={status} onClose={() => setSettingsOpen(false)} />
+      <SettingsScreen
+        status={status}
+        onClose={() => setSettingsOpen(false)}
+        onLogout={() => {
+          setAuthToken('');
+          setSettingsOpen(false);
+          setAuth({ phase: 'failed', reason: 'Pair this browser from the Mac.' });
+        }}
+      />
     );
   }
 
