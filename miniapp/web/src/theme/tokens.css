@@ -39,6 +39,14 @@
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
+  /*
+   * Thread body text. Aside's sidepanel sets its answer text at 14px in a
+   * narrow column; 15px is the mobile-leaning compromise -- a step down
+   * from body size for parity without going under the comfortable mobile
+   * floor. The composer input stays at 1rem regardless: below 16px iOS
+   * zooms the page on focus.
+   */
+  --text-thread: 0.9375rem;
   --text-lg: 1.125rem;
   --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
