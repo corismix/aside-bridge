@@ -9,6 +9,14 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# This test drives a real Aside CLI session, so it only runs on the
+# bridge machine: anywhere without a local config.json, skip cleanly.
+if not os.path.exists(os.path.join(HERE, "config.json")):
+    print("manual test, skipping: needs a local config.json "
+          "(run setup.py on the bridge machine)")
+    sys.exit(0)
+
 spec = importlib.util.spec_from_file_location(
     "bridgemod", os.path.join(HERE, "bridge.py"))
 b = importlib.util.module_from_spec(spec)
@@ -24,6 +32,11 @@ if not os.path.exists(b.ASIDE_CLI):
         _HOME, ".aside/cli/Aside CLI.app/Contents/MacOS/aside")
 if not os.path.isdir(b.SESSIONS_DIR):
     b.SESSIONS_DIR = os.path.join(_HOME, ".aside/u/0/sessions")
+
+if not os.path.exists(b.ASIDE_CLI) or not os.path.isdir(b.SESSIONS_DIR):
+    print("manual test, skipping: no macOS Aside install found "
+          "(Aside CLI / sessions dir missing)")
+    sys.exit(0)
 
 SENT = []
 b.tg = lambda m, p=None, timeout=65: (

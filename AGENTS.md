@@ -15,11 +15,19 @@ before touching authentication, tunnels, tokens, files, or permissions.
 
 ## Build, Test, and Development Commands
 
-Run Python tests from the repository root:
+Run Python tests from the repository root. The files in `tests/` are
+standalone scripts, not unittest modules, so `python3 -m unittest discover`
+errors on them - run each script directly (CI does the same). `bridge.py`
+exits at import without a `config.json`, so seed the example config first:
 
 ```bash
-python3 -m unittest discover -s tests
+cp config.example.json config.json
+python3 tests/test_approval_gate.py   # repeat for each tests/test_*.py
 ```
+
+`tests/test_approval_e2e.py` drives a live Aside CLI session and only works
+on a macOS Aside install; anywhere else it prints a skip note and exits
+cleanly. `.github/workflows/ci.yml` runs the offline harnesses the same way.
 
 Set up or reconfigure the local bridge with `python3 setup.py`. For Mini App
 development, install dependencies once, then use its workspace scripts:

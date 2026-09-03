@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # bridge.py exits at import without a config.json; the example
+      # config is enough for the offline harnesses.
+      - name: Seed config.json
+        run: cp config.example.json config.json
+      # tests/ holds standalone scripts, not unittest modules; run each
+      # directly. test_approval_e2e shells out to the real Aside CLI and
+      # only works on a macOS install, so it stays manual.
+      - name: Run offline test harnesses
+        run: |
+          set -e
+          for f in tests/test_*.py; do
+            if [ "$f" = "tests/test_approval_e2e.py" ]; then
+              echo "skip $f (requires a live Aside CLI on macOS)"
+              continue
+            fi
+            echo "== $f"
+            python3 "$f"
+          done
+
+  miniapp:
+    name: Mini App (typecheck, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
