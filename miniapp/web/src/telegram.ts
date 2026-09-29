@@ -124,6 +124,9 @@ export function colorScheme(): 'light' | 'dark' {
 export function applyTheme(): 'light' | 'dark' {
   const scheme = colorScheme();
   document.documentElement.dataset.theme = scheme;
+  document
+    .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    ?.setAttribute('content', scheme === 'dark' ? '#171717' : '#ffffff');
   const bg = webApp()?.themeParams?.bg_color;
   if (bg) document.documentElement.style.setProperty('--tg-bg', bg);
   return scheme;

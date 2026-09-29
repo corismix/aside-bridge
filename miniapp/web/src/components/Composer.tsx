@@ -392,8 +392,8 @@ export function Composer({
         under the card. Left grows: project, then permission (orange on
         full access). Right: context ring, model, effort.
 
-        The effort pill opens its own reasoning picker, matching the
-        sidepanel's separate model and thinking-level menus.
+        Model and effort stay as separate quiet pills, like project and
+        permission. Each opens its own picker.
       */}
       <div className="composer-meta">
         <div className="composer-meta-group">

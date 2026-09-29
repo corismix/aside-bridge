@@ -14,12 +14,14 @@ export function Sheet({
   subtitle,
   onClose,
   children,
+  className = '',
 }: {
   side: 'bottom' | 'right';
   title: string;
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -32,7 +34,7 @@ export function Sheet({
   return (
     <div className="sheet-layer">
       <div className="sheet-backdrop" onClick={onClose} />
-      <section className={`sheet sheet-${side}`} role="dialog" aria-label={title}>
+      <section className={`sheet sheet-${side} ${className}`} role="dialog" aria-label={title}>
         <header className="sheet-head">
           <div className="sheet-titles">
             <span className="sheet-title">{title}</span>

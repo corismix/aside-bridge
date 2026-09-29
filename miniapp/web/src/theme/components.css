@@ -1,11 +1,10 @@
 /*
  * Screen composition, mirroring the Aside sidepanel.
  *
- * The visual grammar throughout: opaque white surfaces on a faintly grey
- * page, hairline borders at `--border`, generous radii from the squircle
- * scale, and colour reserved for the few places Aside uses it (the
- * permission label, a diffstat, an error). Glass appears only on popovers
- * and the thread footer -- the surfaces that actually overlap content.
+ * The visual grammar throughout: neutral surfaces, hairline borders at
+ * `--border`, generous radii from the squircle scale, and colour reserved
+ * for meaningful status. Floating menus and sheets use Aside's restrained
+ * glass surface; the composer and content remain opaque and readable.
  */
 
 .app {
@@ -238,6 +237,7 @@
   gap: 2px;
   padding: 0 4px;
   min-width: 0;
+  container: composer-meta / inline-size;
 }
 
 .composer-meta-group {
@@ -278,10 +278,16 @@
  * glyph chips still say which project and which permission, and the full
  * names are one tap away in their pickers.
  */
-@media (max-width: 339px) {
+@container composer-meta (max-width: 360px) {
   .pill-permission .pill-label,
   .pill-project .pill-label {
     display: none;
+  }
+}
+
+@container composer-meta (max-width: 300px) {
+  .composer-meta-group:last-child > .pill:nth-last-child(2) .pill-label {
+    max-width: 56px;
   }
 }
 
@@ -753,12 +759,31 @@
 
 /* The timeline's vertical hairline runs behind the step icons. */
 .timeline {
+  position: relative;
   margin-top: 10px;
-  padding-left: 10px;
-  border-left: var(--hairline) solid var(--border);
+  padding-left: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 4px;
+  left: 10px;
+  width: var(--hairline);
+  background: var(--border);
+  pointer-events: none;
+}
+
+.fold.is-open .timeline {
+  animation: timeline-in 0.12s var(--ease-out) both;
+}
+
+@keyframes timeline-in {
+  from { opacity: 0; transform: translateY(-2px); }
 }
 
 .step {
@@ -781,6 +806,13 @@
 
 .step-row.is-expandable:active {
   background: var(--muted);
+}
+
+.step-row:focus-visible,
+.subagent-spawn:focus-visible,
+.fold-row:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .step-icon {
@@ -1003,9 +1035,9 @@
   z-index: 60;
   padding: 6px;
   border-radius: var(--radius-2xl);
-  background: var(--surface-secondary);
-  backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
-  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
+  background: color-mix(in oklab, var(--popover) 80%, transparent);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   border: var(--hairline) solid var(--border-surface-strong);
   box-shadow:
     0 12px 32px oklch(14.5% 0 0 / 0.14),
@@ -1664,9 +1696,9 @@
   position: absolute;
   display: flex;
   flex-direction: column;
-  background: var(--surface-secondary);
-  backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
-  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(1.4);
+  background: color-mix(in oklab, var(--popover) 80%, transparent);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
   border: var(--hairline) solid var(--border-surface-strong);
   box-shadow: 0 -8px 32px oklch(14.5% 0 0 / 0.16);
 }
@@ -1739,6 +1771,186 @@
   gap: 14px;
 }
 
+.picker-sheet .sheet-head {
+  padding: 9px 10px 7px 14px;
+  border-bottom: 0;
+}
+
+.picker-sheet .sheet-title {
+  font-size: var(--text-sm);
+}
+
+.picker-sheet .sheet-body {
+  padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+  gap: 0;
+  background: transparent;
+}
+
+.picker-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-height: inherit;
+}
+
+.picker-group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.picker-group + .picker-group {
+  border-top: var(--hairline) solid var(--border);
+  margin-top: 4px;
+  padding-top: 5px;
+}
+
+.picker-group-title {
+  padding: 3px 9px 4px;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 9px;
+  border-radius: var(--radius-lg);
+  color: var(--popover-foreground);
+  text-align: left;
+  font-size: var(--text-sm);
+  transition: background var(--duration) var(--ease-out);
+}
+
+.picker-row:active,
+.picker-row:focus-visible {
+  background: var(--accent);
+}
+
+.picker-row:focus-visible {
+  outline: 2px solid var(--border-surface-strong);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .picker-row:not(:disabled):hover {
+    background: var(--accent);
+  }
+}
+
+.picker-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.picker-row-leading,
+.picker-row-trailing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground);
+}
+
+.picker-row-leading .project-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.picker-row-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.picker-row-title,
+.picker-row-subtitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-row-title {
+  color: var(--popover-foreground);
+  white-space: nowrap;
+}
+
+.picker-row-subtitle {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.picker-row-trailing {
+  color: var(--popover-foreground);
+}
+
+.picker-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 9px;
+  color: var(--muted-foreground);
+}
+
+.picker-search input {
+  width: 100%;
+  min-width: 0;
+  font-size: var(--text-base);
+  color: var(--foreground);
+}
+
+.picker-search input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.picker-empty {
+  margin: 0;
+  padding: 12px 9px;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.picker-separator {
+  height: var(--hairline);
+  margin: 4px 5px;
+  background: var(--border);
+}
+
+.picker-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px;
+}
+
+.picker-switch-row .picker-row-title {
+  flex: 1;
+  font-size: var(--text-sm);
+}
+
+.picker-note {
+  margin: 0;
+  padding: 2px 9px 5px;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
 @keyframes sheet-fade {
   from {
     opacity: 0;
@@ -1761,7 +1973,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sheet,
-  .sheet-backdrop {
+  .sheet-backdrop,
+  .fold.is-open .timeline {
     animation: none;
   }
 }
@@ -1946,13 +2159,14 @@
   font-weight: var(--font-weight-medium);
 }
 
-.md-em,
-.md-link {
-  color: var(--permission);
-}
+.md-em { color: var(--secondary-foreground); }
+.md-link { color: var(--brand-content); }
 
 .md-code {
-  color: var(--success);
+  color: var(--secondary-foreground);
+  background: var(--muted);
+  border-radius: 4px;
+  padding: 0.05em 0.25em;
 }
 
 /* --- subagents ----------------------------------------------------------- */
@@ -2898,11 +3112,8 @@
 /* ====================================================================
  * Grouped rows inside a sheet
  *
- * The iOS grouped-list shape: white cards floating on the page tint, one
- * hairline between rows and none at the ends, a large title with a muted
- * second line under it. The selected row takes the warm accent and a
- * checkmark rather than a highlight fill -- a filled row would fight the
- * card it sits in.
+ * Older sheet rows remain for non-picker surfaces. New selectors use the
+ * shared flat menu rows above, with selection represented by a check.
  * ==================================================================== */
 
 .sheet-group {
@@ -3074,7 +3285,35 @@
   letter-spacing: 1px;
 }
 
-/* The sheet's own page tint, so the white cards read as raised. */
+/* General sheets retain their page surface; picker sheets stay glassy. */
 .sheet-bottom .sheet-body {
   background: var(--page);
+}
+
+.picker-sheet.sheet-bottom .sheet-body {
+  background: transparent;
+}
+
+@media (max-width: 639px) {
+  .picker-sheet.sheet-bottom {
+    max-height: min(80dvh, 720px);
+  }
+
+  .picker-sheet .picker-row {
+    min-height: 44px;
+    padding: 7px 10px;
+  }
+
+  .picker-sheet .picker-search {
+    min-height: 44px;
+  }
+
+  .picker-sheet .picker-group + .picker-group {
+    margin-top: 3px;
+    padding-top: 4px;
+  }
+
+  .picker-sheet .picker-row-subtitle {
+    white-space: normal;
+  }
 }

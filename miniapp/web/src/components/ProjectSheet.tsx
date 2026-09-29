@@ -11,12 +11,13 @@
  * project session is a normal session seeded with the project's workspace
  * path and its AGENTS.md / MEMORY.md.
  */
-import { Sheet } from './Sheet';
-import { Folder } from './Icons';
-import { projectIcon, projectTint } from '../utils/projects';
+import { Folder, Check } from './Icons';
+import { AdaptivePickerSurface, PickerGroup, PickerRow } from './AdaptivePickerSurface';
+import { ProjectGlyphForProject } from '../utils/projects';
 import type { AsideProject } from '../types';
 
 export interface ProjectSheetProps {
+  anchor: HTMLElement | null;
   projects: AsideProject[];
   current: string;
   onPick: (projectId: string) => void;
@@ -25,50 +26,38 @@ export interface ProjectSheetProps {
 
 /** Row glyph with the project's own icon, tinted by its colour. */
 function Glyph({ pr, size = 17 }: { pr: AsideProject; size?: number }) {
-  const Icon = projectIcon(pr.icon);
-  const tint = projectTint(pr.color);
   return (
-    <span className="project-icon" style={{ color: tint.fg }}>
-      <Icon size={size} strokeWidth={1.75} />
+    <span className="project-icon">
+      <ProjectGlyphForProject project={pr} size={size} />
     </span>
   );
 }
 
-export function ProjectSheet({ projects, current, onPick, onClose }: ProjectSheetProps) {
+export function ProjectSheet({ anchor, projects, current, onPick, onClose }: ProjectSheetProps) {
+  const nameCounts = new Map<string, number>();
+  for (const project of projects) nameCounts.set(project.name, (nameCounts.get(project.name) || 0) + 1);
   return (
-    <Sheet side="bottom" title="Project" onClose={onClose}>
-      <div className="sheet-group">
-        <button
-          type="button"
-          className={`sheet-row ${current === '' ? 'is-selected' : ''}`}
+    <AdaptivePickerSurface anchor={anchor} title="Projects" onClose={onClose} width={280}>
+      <PickerGroup>
+        <PickerRow
+          title="No project"
+          leading={<Folder size={16} strokeWidth={1.75} />}
+          selected={current === ''}
+          trailing={current === '' ? <Check size={15} /> : null}
           onClick={() => onPick('')}
-        >
-          <span className="project-icon project-icon-muted">
-            <Folder size={17} strokeWidth={1.75} />
-          </span>
-          <span className="sheet-row-text">
-            <span className="sheet-row-title">No project</span>
-            <span className="sheet-row-subtitle">
-              Plain session at the Aside root
-            </span>
-          </span>
-        </button>
+        />
         {projects.map((pr) => (
-          <button
+          <PickerRow
             key={pr.id}
-            type="button"
-            className={`sheet-row ${current === pr.id ? 'is-selected' : ''}`}
+            title={pr.name}
+            subtitle={nameCounts.get(pr.name)! > 1 ? pr.workspacePath : undefined}
+            leading={<Glyph pr={pr} />}
+            selected={current === pr.id}
+            trailing={current === pr.id ? <Check size={15} /> : null}
             onClick={() => onPick(pr.id)}
-          >
-            <Glyph pr={pr} />
-            <span className="sheet-row-text">
-              <span className="sheet-row-title">{pr.name}</span>
-              <span className="sheet-row-subtitle">{pr.workspacePath}</span>
-            </span>
-          </button>
+          />
         ))}
-      </div>
-    </Sheet>
+      </PickerGroup>
+    </AdaptivePickerSurface>
   );
 }
-

@@ -15,7 +15,7 @@ import { PermissionPicker } from './components/Pickers';
 import { ModelSheet, ReasoningSheet } from './components/ModelSheet';
 import { ProjectSheet } from './components/ProjectSheet';
 import type { AsideProject } from './types';
-import { projectIcon, projectTint } from './utils/projects';
+import { ProjectGlyph } from './utils/projects';
 import { CitationSheet } from './components/Citations';
 import { SessionPanel } from './components/SessionPanel';
 import { SettingsScreen } from './components/SettingsScreen';
@@ -72,11 +72,9 @@ function ProjectPillGlyph({
   icon?: string;
   color?: string;
 }) {
-  const Icon = projectIcon(icon);
-  const tint = projectTint(color);
   return (
-    <span className="project-icon project-icon-sm" style={{ color: tint.fg }}>
-      <Icon size={13} strokeWidth={1.75} />
+    <span className="project-icon project-icon-sm">
+      <ProjectGlyph icon={icon} color={color} size={13} />
     </span>
   );
 }
@@ -451,6 +449,7 @@ export default function App() {
   }) =>
     picker.kind === 'effort' && status ? (
       <ReasoningSheet
+        anchor={picker.anchor}
         options={status.effortMenu}
         current={current.effortId}
         onPick={pickEffort}
@@ -458,6 +457,7 @@ export default function App() {
       />
     ) : picker.kind === 'model' && status ? (
       <ModelSheet
+        anchor={picker.anchor}
         catalog={status.catalog}
         currentProvider={current.provider}
         currentModel={current.modelId}
@@ -470,6 +470,7 @@ export default function App() {
       />
     ) : picker.kind === 'project' ? (
       <ProjectSheet
+        anchor={picker.anchor}
         projects={projects}
         current={projectId}
         onPick={pickProject}

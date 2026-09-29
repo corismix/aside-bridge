@@ -236,6 +236,7 @@ export function makeTestEnv(
   );
   const uploadsDir = path.join(root, 'uploads');
   const mediaDir = path.join(root, 'media');
+  const asideRoot = path.join(root, 'aside');
 
   process.env.MINIAPP_CONFIG = configPath;
   process.env.MINIAPP_SESSIONS_DIR = sessionsDir;
@@ -243,6 +244,9 @@ export function makeTestEnv(
   process.env.MINIAPP_STATE_DB = stateDbPath;
   process.env.MINIAPP_UPLOADS_DIR = uploadsDir;
   process.env.MINIAPP_MEDIA_DIR = mediaDir;
+  // Catalog and desktop-state reads must never reach into the developer's
+  // live Aside account while a test is running.
+  process.env.MINIAPP_ASIDE_ROOT = asideRoot;
 
   return {
     root,
@@ -259,6 +263,7 @@ export function makeTestEnv(
       delete process.env.MINIAPP_STATE_DB;
       delete process.env.MINIAPP_UPLOADS_DIR;
       delete process.env.MINIAPP_MEDIA_DIR;
+      delete process.env.MINIAPP_ASIDE_ROOT;
       fs.rmSync(root, { recursive: true, force: true });
     },
   };

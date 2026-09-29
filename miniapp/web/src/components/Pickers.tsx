@@ -7,7 +7,7 @@
  * full. Permission stays a popover because it is a three-item choice with
  * a switch, not a list worth a sheet.
  */
-import { Popover, PopoverRow, PopoverTitle } from './Popover';
+import { AdaptivePickerSurface, PickerGroup, PickerRow } from './AdaptivePickerSurface';
 import { Check, PermissionGlyph } from './Icons';
 
 export interface PermissionPickerProps {
@@ -60,28 +60,37 @@ export function PermissionPicker({
   onToggleConfirm,
   onClose,
 }: PermissionPickerProps) {
+  const descriptions: Record<string, string> = {
+    'read-only': 'Read and respond; file changes are disabled.',
+    guard: 'Changes follow Aside’s guard rules.',
+    'full-access': 'Read and change files without guard restrictions.',
+  };
   return (
-    <Popover anchor={anchor} onClose={onClose} width={224}>
-      <PopoverTitle>Permission</PopoverTitle>
-      {options.map((option) => (
-        <PopoverRow
-          key={option.id}
-          selected={option.id === current}
-          leading={<PermissionGlyph mode={option.id} />}
-          trailing={option.id === current ? <Check size={14} /> : null}
-          onClick={() => {
-            onPickMode(option.id);
-            onClose();
-          }}
-        >
-          {option.label}
-        </PopoverRow>
-      ))}
+    <AdaptivePickerSurface anchor={anchor} title="Permission" onClose={onClose} width={280}>
+      <PickerGroup>
+        {options.map((option) => {
+          const selected = option.id === current;
+          return (
+            <PickerRow
+              key={option.id}
+              title={option.label}
+              subtitle={descriptions[option.id]}
+              leading={<PermissionGlyph mode={option.id} />}
+              selected={selected}
+              trailing={selected ? <Check size={15} /> : null}
+              onClick={() => {
+                onPickMode(option.id);
+                onClose();
+              }}
+            />
+          );
+        })}
+      </PickerGroup>
 
-      <div className="popover-sep" />
+      <div className="picker-separator" />
 
-      <div className="popover-switch-row">
-        <span className="popover-row-label">Confirm before acting</span>
+      <div className="picker-switch-row">
+        <span className="picker-row-title">Confirm before acting</span>
         <button
           type="button"
           role="switch"
@@ -94,11 +103,11 @@ export function PermissionPicker({
         </button>
       </div>
 
-      <p className="popover-note">
+      <p className="picker-note">
         {softConfirm === false
           ? 'Applies from your next message.'
           : 'Asks here, on a card you can answer. Applies from your next message.'}
       </p>
-    </Popover>
+    </AdaptivePickerSurface>
   );
 }

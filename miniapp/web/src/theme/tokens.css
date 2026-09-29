@@ -78,20 +78,42 @@
   --color-red-600: oklch(57.7% 0.245 27.325);
   --color-orange-400: oklch(75% 0.183 55.934);
   --color-orange-500: oklch(70.5% 0.213 47.604);
+  --color-orange-600: oklch(64.6% 0.222 41.116);
+  --color-amber-700: oklch(55.5% 0.163 48.998);
+  --color-yellow-400: oklch(85.2% 0.199 91.936);
+  --color-yellow-500: oklch(79.5% 0.184 86.047);
+  --color-yellow-700: oklch(55.4% 0.135 66.442);
+  --color-lime-400: oklch(84.1% 0.238 128.85);
+  --color-lime-500: oklch(76.8% 0.233 130.85);
+  --color-lime-700: oklch(53.2% 0.157 131.589);
   --color-amber-400: oklch(82.8% 0.189 84.429);
   --color-amber-500: oklch(76.9% 0.188 70.08);
   --color-green-400: oklch(79.2% 0.209 151.711);
   --color-green-500: oklch(72.3% 0.219 149.579);
+  --color-green-600: oklch(62.7% 0.194 149.214);
   --color-emerald-400: oklch(76.5% 0.177 163.223);
   --color-emerald-500: oklch(69.6% 0.17 162.48);
+  --color-emerald-600: oklch(59.6% 0.145 163.225);
+  --color-cyan-400: oklch(78.9% 0.154 211.53);
+  --color-cyan-600: oklch(60.9% 0.126 221.723);
   --color-sky-400: oklch(74.6% 0.16 232.661);
   --color-sky-500: oklch(68.5% 0.169 237.323);
+  --color-sky-600: oklch(58.8% 0.158 241.966);
   --color-blue-400: oklch(70.7% 0.165 254.624);
   --color-blue-500: oklch(62.3% 0.214 259.815);
+  --color-blue-600: oklch(54.6% 0.245 262.881);
+  --color-indigo-400: oklch(67.3% 0.182 276.935);
+  --color-indigo-600: oklch(51.1% 0.262 276.966);
   --color-violet-400: oklch(70.2% 0.183 293.541);
   --color-violet-500: oklch(60.6% 0.25 292.717);
+  --color-violet-600: oklch(54.1% 0.281 293.009);
+  --color-fuchsia-400: oklch(74% 0.238 322.16);
+  --color-fuchsia-600: oklch(59.1% 0.293 322.896);
   --color-pink-400: oklch(71.8% 0.202 349.761);
   --color-pink-500: oklch(65.6% 0.241 354.308);
+  --color-pink-600: oklch(59.2% 0.249 0.584);
+  --color-slate-400: oklch(70.4% 0.04 256.788);
+  --color-slate-600: oklch(44.6% 0.043 257.281);
 
   /* --- geometry ------------------------------------------------------- */
   /* Aside scales its radii by a squircle factor rather than using flat px. */
@@ -119,7 +141,7 @@
    * Matched to `--page` so the thread and the home screen are one surface
    * rather than two subtly different whites meeting at a header border.
    */
-  --background: oklch(97.3% 0.004 92);
+  --background: var(--color-white);
   --foreground: var(--color-neutral-950);
   /* Menus stay pure white so they read as floating above the page. */
   --popover: var(--color-white);
@@ -140,6 +162,22 @@
   --success: var(--color-emerald-500);
   /* The permission label is the one place Aside uses orange. */
   --permission: var(--color-orange-500);
+  --project-mono: var(--color-neutral-700);
+  --project-red: var(--color-red-600);
+  --project-orange: var(--color-orange-600);
+  --project-amber: var(--color-amber-700);
+  --project-yellow: var(--color-yellow-700);
+  --project-lime: var(--color-lime-700);
+  --project-green: var(--color-green-600);
+  --project-emerald: var(--color-emerald-600);
+  --project-cyan: var(--color-cyan-600);
+  --project-sky: var(--color-sky-600);
+  --project-blue: var(--color-blue-600);
+  --project-indigo: var(--color-indigo-600);
+  --project-violet: var(--color-violet-600);
+  --project-fuchsia: var(--color-fuchsia-600);
+  --project-pink: var(--color-pink-600);
+  --project-slate: var(--color-slate-600);
   /* The Final confirm switch, green when on -- as in Aside's popover. */
   --switch-on: oklch(64% 0.16 149);
 
@@ -156,26 +194,11 @@
   --surface-secondary-foreground: oklch(14.5% 0 0 / 0.55);
   --surface-tertiary-foreground: oklch(14.5% 0 0 / 0.25);
 
-  /*
-   * The page behind the cards.
-   *
-   * Warmed from a dead-neutral off-white to a low-chroma cream. Aside's
-   * own palette is near-neutral and this stays inside that -- 0.004
-   * chroma is below the threshold where a colour reads as tinted -- but
-   * it is the difference between "unstyled white" and a surface that
-   * white cards sit ON. The composer is `--surface-primary`, still pure
-   * white, so it now lifts off the page instead of dissolving into it.
-   */
-  --page: oklch(97.3% 0.004 92);
+  /* Aside's installed light background is neutral white. */
+  --page: var(--color-white);
 
-  /* The warm accent, used only for the home mark. */
-  /*
-   * Clay, not rust. At 0.118 chroma on hue 40 the mark read as signal red,
-   * and the Aside symbol is a circle with a diagonal through it -- in red
-   * that shape says "prohibited", not "brand". Pulling chroma down and
-   * hue toward amber keeps the warmth without the warning.
-   */
-  --mark-warm: oklch(63% 0.088 52);
+  /* Kept as a compatibility alias for older markup; follows Aside's muted text. */
+  --mark-warm: var(--muted-foreground);
 
   /* Ultrabrowse renders as rainbow text; these are its stops. */
   --ultrabrowse-red: var(--color-red-500);
@@ -216,6 +239,22 @@
   --brand: var(--color-sky-400);
   --success: var(--color-emerald-400);
   --permission: var(--color-orange-400);
+  --project-mono: var(--muted-foreground);
+  --project-red: var(--color-red-400);
+  --project-orange: var(--color-orange-400);
+  --project-amber: var(--color-amber-400);
+  --project-yellow: var(--color-yellow-400);
+  --project-lime: var(--color-lime-400);
+  --project-green: var(--color-green-400);
+  --project-emerald: var(--color-emerald-400);
+  --project-cyan: var(--color-cyan-400);
+  --project-sky: var(--color-sky-400);
+  --project-blue: var(--color-blue-400);
+  --project-indigo: var(--color-indigo-400);
+  --project-violet: var(--color-violet-400);
+  --project-fuchsia: var(--color-fuchsia-400);
+  --project-pink: var(--color-pink-400);
+  --project-slate: var(--color-slate-400);
   --switch-on: oklch(70% 0.16 149);
 
   --border: oklch(98.5% 0 0 / 0.1);
@@ -232,7 +271,7 @@
   --surface-tertiary-foreground: oklch(98.5% 0 0 / 0.25);
 
   --page: var(--color-neutral-900);
-  --mark-warm: oklch(72% 0.105 45);
+  --mark-warm: var(--muted-foreground);
 
   --ultrabrowse-red: var(--color-red-400);
   --ultrabrowse-orange: var(--color-orange-400);
