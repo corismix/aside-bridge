@@ -121,18 +121,15 @@ describe('effort levels', () => {
     expect(effortLabel('weird')).toBe('weird');
   });
 
-  it('omits Max from the menu because the CLI rejects it', () => {
-    // Verified against the binary: `aside exec --effort max` fails with
-    // "Allowed choices are off, minimal, low, medium, high, xhigh,
-    // ultrabrowse."
+  it('accepts Max in the supported effort enum', () => {
     expect(EFFORT_MENU).toEqual([
       'low',
       'medium',
       'high',
       'xhigh',
+      'max',
       'ultrabrowse',
     ]);
-    expect(EFFORT_MENU).not.toContain('max');
     // Off/Minimal stay accepted by the API even though Aside hides them.
     expect(EFFORT_LABELS.off).toBe('Off');
   });

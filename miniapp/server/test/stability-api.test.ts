@@ -112,16 +112,63 @@ describe('GET/POST /api/settings', () => {
     expect(res.json().error).toBe('bad_body');
   });
 
-  it('silently drops values the CLI would reject', async () => {
+  it('retains Max in settings and rejects invalid effort values', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/settings',
       headers: auth(),
-      // `max` is in Aside's own menu but `aside exec --effort` refuses it.
-      payload: { defaultEffort: 'max', defaultPermissionMode: 'root' },
+      payload: { defaultEffort: 'max' },
     });
-    expect(res.json().settings.defaultEffort).toBe('');
-    expect(res.json().settings.defaultPermissionMode).toBeNull();
+    expect(res.json().settings.defaultEffort).toBe('max');
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/settings',
+      headers: auth(),
+      payload: { defaultEffort: 'nonsense' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error).toBe('invalid_effort');
+    const badMode = await app.inject({
+      method: 'POST',
+      url: '/api/settings',
+      headers: auth(),
+      payload: { defaultPermissionMode: 'root' },
+    });
+    expect(badMode.json().settings.defaultPermissionMode).toBeNull();
+  });
+});
+
+describe('Max effort capability checks', () => {
+  beforeEach(() => boot());
+
+  it('rejects a direct Max request when the resolved model has unknown capabilities', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/fixtureAAAA/send',
+      headers: auth(),
+      payload: { text: 'keep this draft', effort: 'max' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      error: 'unsupported_effort',
+      reason: expect.stringContaining('Choose a supported effort'),
+    });
+    const unresolved = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/new',
+      headers: auth(),
+      payload: { text: 'keep this draft', effort: 'max' },
+    });
+    expect(unresolved.statusCode).toBe(400);
+    expect(unresolved.json().error).toBe('unsupported_effort');
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/fixtureAAAA/send',
+      headers: auth(),
+      payload: { text: 'keep this draft', effort: 'nonsense' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error).toBe('invalid_effort');
   });
 });
 

@@ -161,10 +161,12 @@ function Switch({
 
 export function SettingsScreen({
   status,
+  onSettingsChange,
   onClose,
   onLogout,
 }: {
   status: StatusResponse | null;
+  onSettingsChange: (settings: MiniappSettings) => void;
   onClose: () => void;
   onLogout: () => void;
 }) {
@@ -178,13 +180,17 @@ export function SettingsScreen({
   useEffect(() => {
     let alive = true;
     api.settings().then(
-      (res) => alive && setSettings(res.settings),
+      (res) => {
+        if (!alive) return;
+        setSettings(res.settings);
+        onSettingsChange(res.settings);
+      },
       (err) => alive && setError((err as Error).message),
     );
     return () => {
       alive = false;
     };
-  }, []);
+  }, [onSettingsChange]);
 
   useEffect(() => {
     if (inTelegram() || !pushSupported()) return;
@@ -211,14 +217,23 @@ export function SettingsScreen({
    * The same shape the permission control already uses: the row moves on
    * tap, and a failed write puts the server's truth back rather than
    * leaving a claim on screen we cannot stand behind.
-   */
+  */
   const save = (patch: Partial<MiniappSettings>) => {
-    setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
+    if (!settings) return;
+    const optimistic = { ...settings, ...patch };
+    setSettings(optimistic);
+    onSettingsChange(optimistic);
     api.saveSettings(patch).then(
-      (res) => setSettings(res.settings),
+      (res) => {
+        setSettings(res.settings);
+        onSettingsChange(res.settings);
+      },
       () => {
         api.settings().then(
-          (res) => setSettings(res.settings),
+          (res) => {
+            setSettings(res.settings);
+            onSettingsChange(res.settings);
+          },
           () => {},
         );
       },
@@ -236,13 +251,27 @@ export function SettingsScreen({
     ),
   ];
 
+  const effortModelRef = settings?.defaultProvider && settings?.defaultModelId
+    ? { provider: settings.defaultProvider, modelId: settings.defaultModelId }
+    : status?.defaults;
+  const effortModel = effortModelRef && status?.catalog
+    .find((provider) => provider.id === effortModelRef.provider)?.models
+    .find((model) => model.id === effortModelRef.modelId);
   const effortOptions = [
     { id: '', label: 'Server default' },
-    ...(status?.effortMenu ?? []).map((option) => ({
+    ...(status?.effortMenu ?? [])
+      .filter((option) => effortModel?.availableThinkingLevels
+        ? effortModel.availableThinkingLevels.includes(option.id)
+        : option.id !== 'max')
+      .map((option) => ({
       id: option.id,
       label: option.label,
-    })),
+      })),
   ];
+  const savedEffortUnavailable = Boolean(
+    settings?.defaultEffort &&
+    !effortOptions.some((option) => option.id === settings?.defaultEffort),
+  );
 
   const permissionOptions = [
     { id: '', label: 'Leave Aside’s default' },
@@ -310,7 +339,9 @@ export function SettingsScreen({
               />
               <ChoiceRow
                 title="Reasoning"
-                description="How hard a new session thinks before answering."
+                description={savedEffortUnavailable
+                  ? 'This effort is not verified for the selected model. Choose a supported effort before starting a session.'
+                  : 'How hard a new session thinks before answering.'}
                 value={settings.defaultEffort}
                 options={effortOptions}
                 onPick={(id) => save({ defaultEffort: id })}

@@ -100,6 +100,8 @@ export interface ThreadState {
   dismissAlerts: () => void;
   /** Show a just-sent message immediately, before the transcript has it. */
   addPending: (message: PendingMessage) => void;
+  /** Remove a just-sent message if the server rejected that request. */
+  clearPending: (at: number) => void;
   /** Reflect a permission change without waiting for a refetch. */
   applyPermission: (next: {
     permission: string | null;
@@ -359,6 +361,8 @@ export function useThread(sessionId: string): ThreadState {
     refresh: load,
     dismissAlerts: () => setAlerts([]),
     addPending: (message) => setPending(message),
+    clearPending: (at) =>
+      setPending((current) => current?.at === at ? null : current),
     applyPermission: (next) =>
       setMeta((prev) => (prev ? { ...prev, ...next } : prev)),
   };

@@ -4,64 +4,45 @@ Updated 2026-09-29.
 
 ## Current work
 
-Prepared the implementation handoff for the Aside update specs. P0, P1, and P2
-are implementation-ready specifications; this prep changed documentation only.
-No runtime code, service, account setting, live Aside session, or Git history
-was changed.
-
-The checkout was clean at `6931aa5 feat: improve mini app picker surfaces`
-(`main` tracking `origin/main`) when this handoff was written. Recheck status
-before editing and preserve any changes that appear later.
-
-## Implementation start
-
-Start with [P0](docs/ASIDE-UPDATE-P0-SPEC.md), then P1 and P2 in dependency
-order. The specs are the source of truth for behavior and acceptance; do not
-repeat the research pass unless versions or evidence have changed.
-
-1. **P0 foundations:** implement Max enum/capability plumbing first. Max can be
-   enabled only for models with verified thinking-level metadata; missing
-   metadata blocks selectable Max, not the remaining P0 work. Then handle the
-   placeholder and permission copy, Telegram `/stop`, and the transport/design
-   docs in the order and with the gates in P0.
-2. **P1 mobile behavior:** permission/confirmation, per-thread project
-   context, attachment menu, image capability validation, approval contract,
-   and Follow-up behavior. Build the shared steering dispatcher before its
-   settings/UI path. Keep remembered approvals disabled until structured,
-   scoped action identity is available.
-3. **P2 queue/interruption:** build on P1's dispatcher and explicit paused
-   queue behavior. Establish atomic queue claim/revision semantics before the
-   edit UI or priority Send now. Keep Fast unavailable unless both model
-   support and entitlement have supported sources.
-
-Do not claim `/stop`, steering, or priority interruption complete until a
-controlled driver-lifecycle check proves the active child settles and bridge
-state recovers. Run any live/billed check only under explicit authorization.
-Unsupported capabilities remain visibly unavailable and are recorded as
-incomplete; they must not become guessed defaults or cosmetic controls.
+Implemented [P0](docs/ASIDE-UPDATE-P0-SPEC.md). Source, regression, and
+documentation changes are in the working tree; unrelated tracked files were
+not changed. The authorized live `/stop` check used the free
+`opencode-go/space-bunny-free` model in throwaway session
+`7GzE95UkAs6I0Tp6`; it remains interrupted in Aside. No Telegram service
+settings, command menu, or Git history was changed.
 
 ## Latest meaningful validation
 
-Reviewed all three specs and the 2026-09-29 research. Their research items
-1–18 map once across P0/P1/P2, with acceptance criteria, target surfaces,
-non-goals, and validation guidance. Confirmed P1 steering is a dependency for
-P2 and identified model capability sources, approval identity, and live driver
-behavior as explicit gates. No runtime tests were run for this documentation
-update.
+- Mini App: full server and web Vitest suites pass (563 server tests, 187 web
+  tests); typecheck and production build pass. Build reports the existing
+  503 kB main-chunk warning.
+- Python: `py_compile` and `tests/test_stop_command.py` pass.
+- Stop regression runs the real worker/message flow against a blocking fake
+  driver and fake stop CLI. It covers successful cancellation, active-session
+  targeting after session selection changes, partial output, pending replay,
+  preserved commands, idle/bootstrap/malformed use, repeated taps, natural
+  completion, CLI failure/timeout, and busy-state recovery. This check found
+  and fixed a queue-emptiness bug that left `WORKER_BUSY` set after queued
+  commands completed. Approval and question bridge regressions also pass with
+  an isolated temporary config.
+- Live Stop: `aside session stop` returned success, but the first observed run
+  left its CLI waiter blocked. `run_aside` now retains that exact child process;
+  after daemon Stop acknowledgement it gives the waiter three seconds, then
+  terminates the owned child. The repeat against the throwaway model/session
+  exited 143 (SIGTERM), settled the worker, cleared `ACTIVE_RUN`, and cleared
+  `WORKER_BUSY`.
+- Browser: built client checked in installed Chrome at 320, 390, and 430 CSS
+  px, in light/dark home and reply states. Browser simulation does not verify
+  Telegram PWA or real keyboard behavior.
+- `git diff --check` passes. Temporary QA server was stopped.
 
-## Next action
+## Known boundaries
 
-Begin the P0 implementation in a fresh pass, first tracing the model catalog
-capability fields and existing dispatch/config paths named in the P0 spec.
-Before edits, recheck the worktree and re-verify installed Aside/CLI versions
-if relying on the dated research evidence.
-
-## Unresolved gates
-
-- P0 Max: verified per-model thinking levels; CLI acceptance alone does not
-  prove daemon effectiveness.
-- P0 Stop and P1/P2 steering/interruption: controlled driver settlement and
-  busy-state recovery.
+- P0 Max: local capability metadata is transported and enforced, but effective
+  daemon effort is not established by CLI parsing evidence.
+- P0 Stop: real CLI/driver settlement was verified. Telegram polling and
+  delivery were not exercised against the live bot; command ownership remains
+  enforced by the configured private-chat id check.
 - P1 remembered approvals: structured action identity and exact scoped grant
   matching.
 - P1/P2 image and Fast controls: authoritative catalog capability metadata;

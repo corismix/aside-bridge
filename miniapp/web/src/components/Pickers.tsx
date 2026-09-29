@@ -61,9 +61,9 @@ export function PermissionPicker({
   onClose,
 }: PermissionPickerProps) {
   const descriptions: Record<string, string> = {
-    'read-only': 'Read and respond; file changes are disabled.',
-    guard: 'Changes follow Aside’s guard rules.',
-    'full-access': 'Read and change files without guard restrictions.',
+    'read-only': 'Can only work in this task’s folder. Won’t access other folders.',
+    guard: 'Can work in Documents, Downloads, and this task’s folder. Asks before accessing other folders.',
+    'full-access': 'Can read and write anywhere on this computer.',
   };
   return (
     <AdaptivePickerSurface anchor={anchor} title="Permission" onClose={onClose} width={280}>
@@ -86,6 +86,8 @@ export function PermissionPicker({
           );
         })}
       </PickerGroup>
+
+      <p className="picker-note">Aside's default is Guard.</p>
 
       <div className="picker-separator" />
 

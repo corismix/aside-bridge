@@ -145,17 +145,27 @@ CALLS = []
 
 
 class FakeProc(object):
-    returncode = 0
-    stdout = "ok"
-    stderr = ""
+    def __init__(self):
+        self.returncode = 0
+        self.stdout = "ok"
+        self.stderr = ""
+
+    def communicate(self, timeout=None):
+        return self.stdout, self.stderr
+
+    def poll(self):
+        return self.returncode
 
 
-saved_run = b.subprocess.run
+saved_popen = b.subprocess.Popen
 try:
-    b.subprocess.run = lambda cmd, **kw: (CALLS.append(cmd), FakeProc())[1]
+    b.subprocess.Popen = lambda cmd, **kw: (CALLS.append(cmd), FakeProc())[1]
     b.run_aside("hi", model="claude-sonnet-5")
     check("a bare id is sent qualified",
           "claude-code/claude-sonnet-5" in CALLS[-1])
+    check("the active run retains its exact child process",
+          b.ACTIVE_RUN["process"] is not None
+          and b.ACTIVE_RUN["done"].is_set())
     CALLS.clear()
     b.run_aside("hi", model="who/knows")
     check("an unknown id is passed through untouched",
@@ -167,8 +177,34 @@ try:
     check("existing sessions use session resume",
           CALLS[-1][1:] == ["-m", "m", "--effort", "low", "session",
                             "resume", "session123", "--", "-leading"])
+    check("each run owns a separate process context",
+          b.ACTIVE_RUN["session_id"] == "session123"
+          and b.ACTIVE_RUN["process_started"].is_set())
+
+    class TimedOutProc(FakeProc):
+        def __init__(self):
+            super(TimedOutProc, self).__init__()
+            self.communications = 0
+            self.killed = False
+
+        def communicate(self, timeout=None):
+            self.communications += 1
+            if self.communications == 1:
+                raise b.subprocess.TimeoutExpired("aside", timeout)
+            return "", ""
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+    timed_out_proc = TimedOutProc()
+    b.subprocess.Popen = lambda cmd, **kw: (CALLS.append(cmd), timed_out_proc)[1]
+    result = b.run_aside("bounded", session_id="session123")
+    check("a timed-out driver kills only its retained child",
+          result[0] == -1 and timed_out_proc.killed
+          and b.ACTIVE_RUN["done"].is_set())
 finally:
-    b.subprocess.run = saved_run
+    b.subprocess.Popen = saved_popen
 
 
 # ---- 4. a transcript with bad bytes does not take the poller down ----

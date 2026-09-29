@@ -26,7 +26,7 @@ import { TodoSection } from './components/TodoSection';
 import { ErrorCard } from './components/ErrorCard';
 import { ChevronLeft, PanelRight, Settings, Spinner } from './components/Icons';
 import type { CitationMark } from './utils/citations';
-import { api, setAuthToken } from './api';
+import { ApiError, api, setAuthToken } from './api';
 import { useThread } from './hooks/useThread';
 import { useAttachments } from './hooks/useAttachments';
 import { reconcilePick, resolvePills, resolveThreadModel } from './utils/pills';
@@ -39,7 +39,7 @@ import {
   readInitData,
   stashDevInitData,
 } from './telegram';
-import type { CatalogProvider, SessionRow, StatusResponse } from './types';
+import type { CatalogProvider, MiniappSettings, SessionRow, StatusResponse } from './types';
 import { inTelegram } from './telegram';
 
 /**
@@ -104,6 +104,23 @@ const FALLBACK_PERMISSION_MENU = [
   { id: 'full-access', label: 'Full access' },
 ];
 
+function effortIssue(
+  catalog: CatalogProvider[] | undefined,
+  provider: string,
+  modelId: string,
+  effort: string,
+): string | null {
+  const model = catalog?.find((item) => item.id === provider)?.models
+    .find((item) => item.id === modelId);
+  const levels = model?.availableThinkingLevels;
+  const available = levels
+    ? levels.includes(effort)
+    : effort !== 'max';
+  return available
+    ? null
+    : 'This effort is not verified for the selected model. Choose a supported effort before sending.';
+}
+
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ phase: 'pending' });
   /**
@@ -117,6 +134,7 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [appSettings, setAppSettings] = useState<MiniappSettings | null>(null);
   const [picker, setPicker] = useState<PickerState>({ kind: 'none' });
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -240,11 +258,20 @@ export default function App() {
     }
   }, []);
 
+  const refreshAppSettings = useCallback(async () => {
+    try {
+      setAppSettings((await api.settings()).settings);
+    } catch {
+      // The new-session API still applies server-side defaults if this read fails.
+    }
+  }, []);
+
   useEffect(() => {
     if (auth.phase !== 'ready') return;
     void loadSessions();
     void refreshStatus();
-  }, [auth.phase, loadSessions, refreshStatus]);
+    void refreshAppSettings();
+  }, [auth.phase, loadSessions, refreshStatus, refreshAppSettings]);
 
   // A bounded refresh, so a long-lived webview converges on the desktop's
   // current model list without anyone reopening the app.
@@ -327,6 +354,35 @@ export default function App() {
     [status, provider, modelId, effort],
   );
 
+  // New-session settings are app-local defaults. An explicit composer pick
+  // wins; otherwise show and send the saved preference, then fall back to
+  // Aside's account default when the app has no preference.
+  const newSessionPills = useMemo(() => {
+    const preferredModel = !provider && !modelId &&
+      appSettings?.defaultProvider && appSettings.defaultModelId
+      ? {
+          provider: appSettings.defaultProvider,
+          modelId: appSettings.defaultModelId,
+        }
+      : null;
+    const nextProvider = preferredModel?.provider || pills.provider;
+    const nextModelId = preferredModel?.modelId || pills.modelId;
+    const nextEffort = !effort && appSettings?.defaultEffort
+      ? appSettings.defaultEffort
+      : pills.effortId;
+    return {
+      ...pills,
+      provider: nextProvider,
+      modelId: nextModelId,
+      modelLabel: preferredModel
+        ? status?.catalog.find((item) => item.id === nextProvider)?.models
+          .find((item) => item.id === nextModelId)?.label || nextModelId
+        : pills.modelLabel,
+      effortId: nextEffort,
+      effortLabel: status?.effortMenu.find((item) => item.id === nextEffort)?.label || nextEffort,
+    };
+  }, [appSettings, effort, modelId, pills, provider, status]);
+
   const permissionMenu = status?.permissionMenu?.length
     ? status.permissionMenu
     : FALLBACK_PERMISSION_MENU;
@@ -351,6 +407,13 @@ export default function App() {
       ? `${pills.provider}/${pills.modelId}`
       : undefined;
 
+  const wireNewSessionModel = () =>
+    !provider && !modelId && !appSettings
+      ? undefined
+      : newSessionPills.provider && newSessionPills.modelId
+        ? `${newSessionPills.provider}/${newSessionPills.modelId}`
+        : undefined;
+
   // --- sending ------------------------------------------------------------
   const startSession = async () => {
     const text = draft.trim();
@@ -360,8 +423,8 @@ export default function App() {
     try {
       const res = await api.newSession({
         text,
-        model: wireModel(),
-        effort: pills.effortId,
+        model: wireNewSessionModel(),
+        effort: effort || appSettings?.defaultEffort || undefined,
         attachments: files,
         permissionMode: newMode ?? undefined,
         finalConfirm: newFinalConfirm ?? undefined,
@@ -446,12 +509,22 @@ export default function App() {
     softConfirm?: boolean;
     onPickMode: (id: string) => void;
     onToggleConfirm: (next: boolean) => void;
-  }) =>
-    picker.kind === 'effort' && status ? (
+  }) => {
+    const selectedModel = status?.catalog
+      .find((item) => item.id === current.provider)?.models
+      .find((item) => item.id === current.modelId);
+    const declaredEfforts = selectedModel?.availableThinkingLevels;
+    const effortOptions = (status?.effortMenu ?? []).filter((option) =>
+      declaredEfforts
+        ? declaredEfforts.includes(option.id)
+        : option.id !== 'max',
+    );
+    return picker.kind === 'effort' && status ? (
       <ReasoningSheet
         anchor={picker.anchor}
-        options={status.effortMenu}
+        options={effortOptions}
         current={current.effortId}
+        unavailableCurrent={Boolean(current.effortId && !effortOptions.some((option) => option.id === current.effortId))}
         onPick={pickEffort}
         onClose={closePicker}
       />
@@ -488,6 +561,7 @@ export default function App() {
         onClose={closePicker}
       />
     ) : null;
+  };
 
   // Settings is a full screen rather than a sheet: it is a destination with
   // its own back affordance, which is how Aside treats it too.
@@ -495,6 +569,7 @@ export default function App() {
     return (
       <SettingsScreen
         status={status}
+        onSettingsChange={setAppSettings}
         onClose={() => setSettingsOpen(false)}
         onLogout={() => {
           setAuthToken('');
@@ -554,7 +629,7 @@ export default function App() {
             value={draft}
             onChange={setDraft}
             onSubmit={startSession}
-            pills={pills}
+            pills={newSessionPills}
             onOpenModel={openModel}
             onOpenEffort={openEffort}
             onOpenPermission={openPermission}
@@ -576,10 +651,16 @@ export default function App() {
             onRemoveAttachment={attachments.remove}
             busy={sending}
             disabled={sending}
+            blockedReason={effortIssue(
+              status?.catalog,
+              newSessionPills.provider,
+              newSessionPills.modelId,
+              newSessionPills.effortId,
+            )}
           />
         </footer>
         {renderPicker({
-          ...pills,
+          ...newSessionPills,
           permissionMode: newMode,
           finalConfirm: newFinalConfirm,
           // A session started here is a mobile session by definition.
@@ -690,6 +771,7 @@ function ThreadScreen({
    */
   const [fades, setFades] = useState({ top: false, bottom: false });
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [citation, setCitation] = useState<CitationMark | null>(null);
 
@@ -716,6 +798,10 @@ function ThreadScreen({
       ? pills.effortLabel
       : thread.model?.effortLabel || pills.effortLabel,
   };
+
+  useEffect(() => {
+    setSendError(null);
+  }, [effective.provider, effective.modelId, effective.effortId]);
 
   // Stay pinned to the newest content while a turn streams, but never yank
   // the view away from someone who has scrolled up to read.
@@ -757,17 +843,17 @@ function ThreadScreen({
     const files = attachments.ready();
     if ((!text && !files.length) || sending) return;
     setSending(true);
+    setSendError(null);
 
     // The bubble goes up before the request does. This is the fix for
     // "the message I send isn't viewable right away": nothing about the
     // send needs to have succeeded for the user to see what they typed.
+    const pendingAt = Date.now();
     thread.addPending({
       text,
       attachments: files.map((f) => ({ name: f.name, mimeType: f.mimeType })),
-      at: Date.now(),
+      at: pendingAt,
     });
-    setDraft('');
-    attachments.clear();
     pinned.current = true;
 
     try {
@@ -786,6 +872,19 @@ function ThreadScreen({
       if (result.sessionId !== sessionId) {
         onOpenRecovered(result.sessionId);
       }
+      setDraft('');
+      attachments.clear();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'unsupported_effort') {
+        thread.clearPending(pendingAt);
+        setDraft(text);
+        setSendError(error.reason);
+        return;
+      }
+      // Keep the existing handling for other request failures.
+      setDraft('');
+      attachments.clear();
+      throw error;
     } finally {
       setSending(false);
     }
@@ -969,11 +1068,9 @@ function ThreadScreen({
           }}
           // A suspended session accepts a send and then hangs on it
           // forever, so the composer refuses rather than jamming.
-          blockedReason={
-            thread.suspended
-              ? 'Waiting on a question that can only be answered from Aside on your computer. Use “Continue in a new session” on the question above to carry on from here.'
-              : null
-          }
+          blockedReason={thread.suspended
+            ? 'Waiting on a question that can only be answered from Aside on your computer. Use “Continue in a new session” on the question above to carry on from here.'
+            : sendError || effortIssue(catalog, effective.provider, effective.modelId, effective.effortId)}
           above={<TodoSection todos={thread.todos} />}
         />
       </footer>

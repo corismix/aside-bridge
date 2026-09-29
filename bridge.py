@@ -20,8 +20,10 @@ import urllib.request
 import uuid
 
 BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BRIDGE_DIR, "config.json")
-STATE_PATH = os.path.join(BRIDGE_DIR, "state.json")
+CONFIG_PATH = os.path.expanduser(os.environ.get(
+    "ASIDE_BRIDGE_CONFIG", os.path.join(BRIDGE_DIR, "config.json")))
+STATE_PATH = os.path.expanduser(os.environ.get(
+    "ASIDE_BRIDGE_STATE", os.path.join(BRIDGE_DIR, "state.json")))
 LOG_PATH = os.path.join(BRIDGE_DIR, "bridge.log")
 MEDIA_DIR = os.path.join(BRIDGE_DIR, "media")
 MOBILE_POLICY_PATH = os.path.join(
@@ -689,16 +691,37 @@ def run_aside(prompt, session_id=None, model=None, effort=None):
     else:
         cmd += ["exec"]
     cmd += ["--", prompt]
+    global ACTIVE_RUN
+    run = {
+        "session_id": session_id,
+        "done": threading.Event(),
+        "settled": threading.Event(),
+        "stop_decided": threading.Event(),
+        "process_started": threading.Event(),
+        "process": None,
+        "stop_confirmed": False,
+    }
+    with TASK_CONDITION:
+        ACTIVE_RUN = run
     try:
-        p = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=EXEC_TIMEOUT
+        p = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
+        with TASK_CONDITION:
+            run["process"] = p
+            run["process_started"].set()
+        try:
+            out, err = p.communicate(timeout=EXEC_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
+            log("EXEC timeout after %ds" % EXEC_TIMEOUT)
+            return -1, "", "turn timed out after %ds" % EXEC_TIMEOUT
         log("EXEC done exit=%d in %.1fs" % (p.returncode, time.time() - t0))
-        return p.returncode, ANSI_RE.sub("", p.stdout or ""), \
-            ANSI_RE.sub("", p.stderr or "")
-    except subprocess.TimeoutExpired:
-        log("EXEC timeout after %ds" % EXEC_TIMEOUT)
-        return -1, "", "turn timed out after %ds" % EXEC_TIMEOUT
+        return p.returncode, ANSI_RE.sub("", out or ""), \
+            ANSI_RE.sub("", err or "")
+    finally:
+        run["done"].set()
 
 
 def newest_session_id(exclude, must_contain=None, newer_than=0):
@@ -1132,7 +1155,7 @@ def _handle_approval_tap(data, mid):
         inject = ("[APPROVAL DENIED by %s] I did not approve the action "
                   "you proposed (%s). Do not perform it. Acknowledge "
                   "briefly and stand by." % (OWNER, action))
-    TASKS.put(("msg", inject))
+    enqueue_task(("msg", inject))
     if WORKER_BUSY.is_set() and not QUEUED_NOTE_SENT.is_set():
         QUEUED_NOTE_SENT.set()
         tg_send_status("\U0001f4e5 got it -- queued for right after "
@@ -1188,10 +1211,146 @@ def handle_callback(cq):
     switch_session(target)
 
 
+class BridgeTaskQueue(queue.Queue):
+    """Queue whose worker claim shares the lock used by Stop cancellation."""
+
+    def take_task(self):
+        global STOP_IN_PROGRESS
+        with self.not_empty:
+            while not self._qsize() or STOP_IN_PROGRESS:
+                self.not_empty.wait()
+            task = self._get()
+            self.not_full.notify()
+            return task
+
+
 # --- task queue between poller and worker ---
-TASKS = queue.Queue()
+TASKS = BridgeTaskQueue()
+TASK_CONDITION = TASKS.not_empty
+STOP_IN_PROGRESS = False
+ACTIVE_RUN = None
 WORKER_BUSY = threading.Event()
 QUEUED_NOTE_SENT = threading.Event()
+
+
+def enqueue_task(task):
+    TASKS.put(task)
+
+
+def task_count():
+    return TASKS.qsize()
+
+
+def take_task():
+    return TASKS.take_task()
+
+
+def cancel_waiting_messages():
+    """Drop queued plain messages while preserving queued commands/order."""
+    with TASKS.mutex:
+        kept = []
+        cancelled = 0
+        while TASKS._qsize():
+            task = TASKS._get()
+            if task[0] == "msg":
+                cancelled += 1
+            else:
+                kept.append(task)
+        for task in kept:
+            TASKS._put(task)
+        TASKS.not_full.notify_all()
+        return cancelled
+
+
+def terminate_active_driver(active, force=False):
+    """Signal only the CLI child owned by the active bridge run."""
+    started = active.get("process_started")
+    if started and not started.wait(2):
+        return False
+    with TASK_CONDITION:
+        process = active.get("process")
+    if not process or process.poll() is not None:
+        return False
+    try:
+        (process.kill if force else process.terminate)()
+    except OSError as e:
+        log("could not %s active CLI child: %s"
+            % ("kill" if force else "terminate", e))
+        return False
+    log("sent %s to the active bridge-owned CLI child"
+        % ("kill" if force else "terminate"))
+    return True
+
+
+def handle_stop():
+    """Stop the active daemon session without targeting the selected session."""
+    global STOP_IN_PROGRESS
+    with TASK_CONDITION:
+        active = ACTIVE_RUN
+        if not active or active["done"].is_set():
+            send_text(
+                "stopping is not available yet while Aside is starting this task"
+                if WORKER_BUSY.is_set() and not active
+                else "nothing is running"
+            )
+            return
+        session_id = active.get("session_id")
+        if not session_id:
+            send_text("stopping is not available yet while Aside is starting this task")
+            return
+        STOP_IN_PROGRESS = True
+
+    try:
+        result = subprocess.run(
+            [ASIDE_CLI, "session", "stop", session_id],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        active["stop_decided"].set()
+        with TASK_CONDITION:
+            STOP_IN_PROGRESS = False
+            TASK_CONDITION.notify_all()
+        log("session stop failed for %s: %s" % (session_id, e))
+        send_text("couldn't confirm the stop; queued messages were kept")
+        return
+
+    if result.returncode != 0:
+        active["stop_decided"].set()
+        with TASK_CONDITION:
+            STOP_IN_PROGRESS = False
+            TASK_CONDITION.notify_all()
+        detail = (result.stderr or result.stdout or "stop command failed").strip()
+        send_text("couldn't stop the active task; queued messages were kept: %s" % detail[:210])
+        return
+
+    active["stop_confirmed"] = True
+    active["stop_decided"].set()
+    if not active["settled"].wait(3):
+        # `aside session stop` can acknowledge the daemon stop while its
+        # bridge-owned CLI waiter remains blocked. The session is already
+        # stopped, so signal only the exact child created by run_aside and
+        # let that function settle through its normal finally path.
+        terminate_active_driver(active)
+    if not active["settled"].wait(5):
+        terminate_active_driver(active, force=True)
+    if not active["settled"].wait(3):
+        with TASK_CONDITION:
+            STOP_IN_PROGRESS = False
+            TASK_CONDITION.notify_all()
+        send_text("Aside acknowledged Stop, but its local driver is still running; queued messages were kept")
+        return
+
+    cancelled = cancel_waiting_messages()
+    if state.get("pending"):
+        state["pending"] = None
+        save_json(STATE_PATH, state)
+    with TASK_CONDITION:
+        STOP_IN_PROGRESS = False
+        TASK_CONDITION.notify_all()
+    if cancelled:
+        send_text("cancelled %d waiting message(s); their original messages remain in chat" % cancelled)
 
 
 def handle_command(text):
@@ -1212,7 +1371,7 @@ def handle_command(text):
                pr.get("name") if pr else (state.get("project_id") or "none"),
                state["effort_next"] or DEFAULT_EFFORT + " (default)",
                "mid-task" if WORKER_BUSY.is_set() else "idle",
-               TASKS.qsize())
+               task_count())
         )
     elif cmd == "/model":
         if not arg:
@@ -1225,9 +1384,14 @@ def handle_command(text):
         save_json(STATE_PATH, state)
         send_text("switched to %s" % state["model"])
     elif cmd == "/usage":
-        TASKS.put(("cmd", "/usage"))
+        enqueue_task(("cmd", "/usage"))
         if WORKER_BUSY.is_set():
             send_text("mid-task, will check usage right after")
+    elif cmd == "/stop":
+        if len(parts) != 1:
+            send_text("usage: /stop")
+        else:
+            handle_stop()
     elif cmd == "/effort":
         if arg and arg in EFFORT_LEVELS:
             state["effort_next"] = arg
@@ -1239,7 +1403,7 @@ def handle_command(text):
         else:
             send_effort_picker()
     elif cmd == "/new":
-        TASKS.put(("cmd", "/new"))
+        enqueue_task(("cmd", "/new"))
         if WORKER_BUSY.is_set():
             send_text("mid-task, will spin up the fresh session after")
     elif cmd == "/project":
@@ -1255,7 +1419,7 @@ def handle_command(text):
         else:
             handle_sessions_cmd()
     else:
-        send_text("commands: /status /usage /model /effort /new /sessions /project")
+        send_text("commands: /status /usage /model /effort /new /stop /sessions /project. /stop cancels waiting messages; their original Telegram messages remain in chat")
 
 
 def new_session_settings_expression(sid):
@@ -1439,7 +1603,7 @@ def handle_project_cmd(arg):
             state["project_id"] = None
             save_json(STATE_PATH, state)
         send_text("project cleared, spinning up a fresh default session...")
-        TASKS.put(("cmd", "/new"))
+        enqueue_task(("cmd", "/new"))
         return
     target = None
     if arg.isdigit() and 1 <= int(arg) <= len(projects):
@@ -1461,7 +1625,7 @@ def handle_project_cmd(arg):
     else:
         send_text("project set to %s (%s)\nspinning up a fresh session inside it..."
                   % (target.get("name"), target.get("id")))
-    TASKS.put(("cmd", "/new"))
+    enqueue_task(("cmd", "/new"))
 
 
 def heavy_new(recovery_from=None, announce=True):
@@ -1792,7 +1956,7 @@ def _handle_question_tap(data, mid):
     # Deliberately NOT a bulleted "- <header>: <label>": a leading dash
     # makes the CLI's argument parser read the whole prompt as a flag.
     # Same reasoning as answerMessage() in the Mini App.
-    TASKS.put(("msg", "%s: %s" % (header, label) if header else label))
+    enqueue_task(("msg", "%s: %s" % (header, label) if header else label))
     if WORKER_BUSY.is_set() and not QUEUED_NOTE_SENT.is_set():
         QUEUED_NOTE_SENT.set()
         tg_send_status("\U0001f4e5 got it -- queued for right after "
@@ -2197,12 +2361,14 @@ def stream_new(msg_file, pos, turn):
 
 
 def handle_message(text, replayed=False):
+    run_session_id = state.get("session_id")
     if not state.get("session_id"):
         dead = state.get("recovery_from")
         if not heavy_new(dead, announce=False):
             send_text("couldn't renew the expired Aside session; your message was not sent")
             return
-    msg_file = session_msg_file(state["session_id"])
+        run_session_id = state.get("session_id")
+    msg_file = session_msg_file(run_session_id)
     offset = 0
     if msg_file and os.path.exists(msg_file):
         offset = os.path.getsize(msg_file)
@@ -2215,7 +2381,7 @@ def handle_message(text, replayed=False):
     def runner():
         result["r"] = run_aside(
             text + STYLE_TAG + QUESTION_REMINDER,
-            session_id=state["session_id"],
+            session_id=run_session_id,
             model=state["model"],
             effort=effort,
         )
@@ -2228,14 +2394,25 @@ def handle_message(text, replayed=False):
         while worker.is_alive():
             worker.join(timeout=2.0)
             if msg_file is None:
-                msg_file = session_msg_file(state["session_id"])
+                msg_file = session_msg_file(run_session_id)
             offset, s = stream_new(msg_file, offset, turn)
             sent_any = sent_any or s
             turn.flush()
 
     code, out, err = result.get("r", (-1, "", "bridge worker died"))
+    run_context = ACTIVE_RUN
+    if run_context and run_context.get("session_id") == run_session_id:
+        with TASK_CONDITION:
+            stopping = STOP_IN_PROGRESS
+        if stopping:
+            run_context["stop_decided"].wait(21)
+    stopped = bool(
+        run_context
+        and run_context.get("session_id") == run_session_id
+        and run_context.get("stop_confirmed")
+    )
     if msg_file is None:
-        msg_file = session_msg_file(state["session_id"])
+        msg_file = session_msg_file(run_session_id)
     offset, s = stream_new(msg_file, offset, turn)
     sent_any = sent_any or s
     # The underlying aside session is done the instant the subprocess
@@ -2263,20 +2440,27 @@ def handle_message(text, replayed=False):
         approval = parse_approval(assistant)
         if not approval:
             question = parse_question(assistant)
+    if stopped:
+        approval = None
+        question = None
     # Only the approval gate suppresses the final block: it restates the
     # action inside its own buttoned message, so sending it twice would
     # be noise. A question does not restate anything, and its block was
     # already stripped out of the displayed text by `on_block` -- so the
     # agent's actual prose still lands as an ordinary reply, and the
     # buttons follow it.
-    if approval:
+    if stopped:
+        turn.suppress_final = False
+    elif approval:
         turn.suppress_final = True
 
     WORKER_BUSY.clear()
     QUEUED_NOTE_SENT.clear()
     turn.finish()
 
-    if approval:
+    if stopped:
+        send_text("task stopped; partial output above" if sent_any else "task stopped")
+    elif approval:
         present_approval(approval)
     elif question:
         # `turn.finish()` above has already sent whatever the agent said
@@ -2294,7 +2478,7 @@ def handle_message(text, replayed=False):
             # No transcript output means the daemon rejected this before it
             # could have executed. Tool/protocol rows count as output too:
             # replaying after one could duplicate a side effect.
-            dead = state.get("session_id")
+            dead = run_session_id
             mark_session_expired(dead)
             if heavy_new(dead, announce=False):
                 handle_message(text, replayed=True)
@@ -2319,8 +2503,9 @@ def handle_message(text, replayed=False):
 
 def worker_loop():
     """Consumes tasks one at a time. Batches adjacent texts."""
+    global ACTIVE_RUN
     while True:
-        kind, payload = TASKS.get()
+        kind, payload = take_task()
         WORKER_BUSY.set()
         try:
             if kind == "cmd":
@@ -2331,16 +2516,12 @@ def worker_loop():
             else:
                 # batch any other texts already waiting
                 texts = [payload]
-                while True:
-                    try:
-                        k2, p2 = TASKS.get_nowait()
-                    except queue.Empty:
-                        break
-                    if k2 == "msg":
-                        texts.append(p2)
-                    else:
-                        TASKS.put((k2, p2))
-                        break
+                with TASK_CONDITION:
+                    while TASKS._qsize() and not STOP_IN_PROGRESS:
+                        if TASKS.queue[0][0] != "msg":
+                            break
+                        texts.append(TASKS._get()[1])
+                    TASKS.not_full.notify_all()
                 combined = "\n\n".join(texts)
                 state["pending"] = combined
                 save_json(STATE_PATH, state)
@@ -2355,7 +2536,15 @@ def worker_loop():
         except Exception as e:  # noqa: BLE001
             log("worker error: %s" % e)
         finally:
-            if TASKS.empty():
+            active = ACTIVE_RUN
+            if active:
+                active["settled"].set()
+                with TASK_CONDITION:
+                    if ACTIVE_RUN is active:
+                        ACTIVE_RUN = None
+            with TASK_CONDITION:
+                empty = TASKS._qsize() == 0
+            if empty:
                 WORKER_BUSY.clear()
                 QUEUED_NOTE_SENT.clear()
 
@@ -2409,7 +2598,7 @@ def main():
     # recover a message that was received but not fully processed
     if state.get("pending"):
         log("recovering pending message")
-        TASKS.put(("msg", state["pending"]))
+        enqueue_task(("msg", state["pending"]))
         state["pending"] = None
         save_json(STATE_PATH, state)
 
@@ -2418,7 +2607,7 @@ def main():
     # first run ever: no session yet -- create and persona-prime one
     if not state.get("session_id") and not state.get("recovery_from"):
         log("no session configured, creating one")
-        TASKS.put(("cmd", "/new"))
+        enqueue_task(("cmd", "/new"))
 
     backoff = 1
     while True:
@@ -2490,7 +2679,7 @@ def main():
             else:
                 log("MSG in: %s%s" % (t[:120].replace("\n", " "),
                                       "..." if len(t) > 120 else ""))
-                TASKS.put(("msg", t))
+                enqueue_task(("msg", t))
                 if WORKER_BUSY.is_set() and \
                         not QUEUED_NOTE_SENT.is_set():
                     QUEUED_NOTE_SENT.set()

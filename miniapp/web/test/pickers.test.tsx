@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { ModelSheet, ReasoningSheet } from '../src/components/ModelSheet';
+import { PermissionPicker } from '../src/components/Pickers';
 import { ProjectSheet } from '../src/components/ProjectSheet';
 import type { CatalogProvider, AsideProject } from '../src/types';
 
@@ -51,6 +52,49 @@ afterEach(() => {
 });
 
 describe('adaptive Aside pickers', () => {
+  it('shows the exact permission descriptions and default without selecting Guard when unknown', () => {
+    render(
+      <PermissionPicker
+        anchor={null}
+        options={[
+          { id: 'read-only', label: 'Read only' },
+          { id: 'guard', label: 'Guard' },
+          { id: 'full-access', label: 'Full access' },
+        ]}
+        current={null}
+        finalConfirm={null}
+        onPickMode={vi.fn()}
+        onToggleConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Can only work in this task’s folder. Won’t access other folders.')).toBeTruthy();
+    expect(screen.getByText('Can work in Documents, Downloads, and this task’s folder. Asks before accessing other folders.')).toBeTruthy();
+    expect(screen.getByText('Can read and write anywhere on this computer.')).toBeTruthy();
+    expect(screen.getByText("Aside's default is Guard.")).toBeTruthy();
+    expect(document.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(0);
+    expect(screen.getByText('Asks here, on a card you can answer. Applies from your next message.')).toBeTruthy();
+  });
+
+  it('checks the actual Full access mode when the session reports it', () => {
+    render(
+      <PermissionPicker
+        anchor={null}
+        options={[
+          { id: 'read-only', label: 'Read only' },
+          { id: 'guard', label: 'Guard' },
+          { id: 'full-access', label: 'Full access' },
+        ]}
+        current="full-access"
+        finalConfirm={false}
+        onPickMode={vi.fn()}
+        onToggleConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(document.querySelector('button[aria-pressed="true"]')?.textContent).toContain('Full access');
+  });
+
   it('shows provider groups immediately and puts the selected provider first', () => {
     render(
       <ModelSheet

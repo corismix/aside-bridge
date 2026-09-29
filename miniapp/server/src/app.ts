@@ -28,6 +28,7 @@ import {
   buildCatalog,
   contextWindowFor,
   modelLabel,
+  modelDeclaresEffort,
   readProviderIds,
 } from './catalog.js';
 import { readDesktopState } from './desktop.js';
@@ -417,6 +418,26 @@ export async function buildServer(
       return Reflect.getOwnPropertyDescriptor(currentCatalog(), prop);
     },
   }) as ReturnType<typeof buildCatalog>;
+
+  function supportsRequestedMax(model: string): boolean {
+    const slash = model.indexOf('/');
+    if (slash > 0) {
+      return modelDeclaresEffort(catalog, model.slice(0, slash), model.slice(slash + 1), 'max');
+    }
+    const matches = catalog.flatMap((provider) =>
+      provider.models.filter((candidate) => candidate.id === model)
+        .map((candidate) => ({ provider: provider.id, id: candidate.id })),
+    );
+    return matches.length === 1 && modelDeclaresEffort(
+      catalog, matches[0].provider, matches[0].id, 'max',
+    );
+  }
+
+  function maxEffortError(model: string, effort: EffortLevel): string | null {
+    return effort === 'max' && !supportsRequestedMax(model)
+      ? 'Max is not verified for this model. Choose a supported effort or select a model that declares Max.'
+      : null;
+  }
 
   /**
    * Subagents of a session, read from the daemon's table and kept warm so
@@ -1184,6 +1205,9 @@ export async function buildServer(
       if (text.length > MAX_MESSAGE_CHARS) {
         return reply.code(413).send({ error: 'text_too_long' });
       }
+      if (body.effort !== undefined && !EFFORT_LEVELS.includes(body.effort as EffortLevel)) {
+        return reply.code(400).send({ error: 'invalid_effort' });
+      }
       const stored = settings.read();
       /**
        * "Confirm before acting", as the composer's switch now means it.
@@ -1198,15 +1222,17 @@ export async function buildServer(
         typeof body.finalConfirm === 'boolean'
           ? body.finalConfirm
           : Boolean(stored.defaultFinalConfirm);
+      const model = runner.resolveModel(resolveNewSessionModel(stored, body.model));
+      const effort = runner.resolveEffort(body.effort ?? stored.defaultEffort);
+      const maxError = maxEffortError(model, effort);
+      if (maxError) return reply.code(400).send({ error: 'unsupported_effort', reason: maxError });
       try {
         const created = await createMobileSessionAndSend({
           text: promptWithAttachments(text, attachments.map((f) => f.path)),
           // An explicit pick from the composer wins; the stored default is
           // only consulted when the client sent nothing.
-          model: runner.resolveModel(
-            resolveNewSessionModel(stored, body.model),
-          ),
-          effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
+          model,
+          effort,
           strictConfirm,
           permissionMode: isPermissionMode(body.permissionMode)
             ? body.permissionMode
@@ -1244,6 +1270,9 @@ export async function buildServer(
       if (text.length > MAX_MESSAGE_CHARS) {
         return reply.code(413).send({ error: 'text_too_long' });
       }
+      if (body.effort !== undefined && !EFFORT_LEVELS.includes(body.effort as EffortLevel)) {
+        return reply.code(400).send({ error: 'invalid_effort' });
+      }
       if (!sessionMsgFile(config.sessionsDir, id)) {
         return reply.code(404).send({ error: 'session_not_found' });
       }
@@ -1256,6 +1285,8 @@ export async function buildServer(
       const prompt = withReminder(rawPrompt, { strictConfirm });
       const model = runner.resolveModel(body.model);
       const effort = runner.resolveEffort(body.effort);
+      const maxError = maxEffortError(model, effort);
+      if (maxError) return reply.code(400).send({ error: 'unsupported_effort', reason: maxError });
       const replacement = await replaceMissingSession(
         id, rawPrompt, model, effort, strictConfirm,
       );
@@ -1349,6 +1380,9 @@ export async function buildServer(
         return reply.code(400).send({ error: 'bad_session_id' });
       }
       if (!label) return reply.code(400).send({ error: 'empty_answer' });
+      if (body.effort !== undefined && !EFFORT_LEVELS.includes(body.effort as EffortLevel)) {
+        return reply.code(400).send({ error: 'invalid_effort' });
+      }
       if (!sessionMsgFile(config.sessionsDir, id)) {
         return reply.code(404).send({ error: 'session_not_found' });
       }
@@ -1358,6 +1392,8 @@ export async function buildServer(
       const prompt = withReminder(rawPrompt, { strictConfirm });
       const model = runner.resolveModel(body.model);
       const effort = runner.resolveEffort(body.effort);
+      const maxError = maxEffortError(model, effort);
+      if (maxError) return reply.code(400).send({ error: 'unsupported_effort', reason: maxError });
       const replacement = await replaceMissingSession(
         id, rawPrompt, model, effort, strictConfirm,
       );
@@ -1409,6 +1445,9 @@ export async function buildServer(
       const { id } = request.params as { id: string };
       const body = (request.body || {}) as Record<string, unknown>;
       const answer = String(body.answer ?? '').trim();
+      if (body.effort !== undefined && !EFFORT_LEVELS.includes(body.effort as EffortLevel)) {
+        return reply.code(400).send({ error: 'invalid_effort' });
+      }
       if (!isValidSessionId(id)) {
         return reply.code(400).send({ error: 'bad_session_id' });
       }
@@ -1429,6 +1468,12 @@ export async function buildServer(
 
       const stored = settings.read();
       const strictConfirm = softConfirm.has(id);
+      const model = runner.resolveModel(
+        resolveNewSessionModel(stored, body.model),
+      );
+      const effort = runner.resolveEffort(body.effort ?? stored.defaultEffort);
+      const maxError = maxEffortError(model, effort);
+      if (maxError) return reply.code(400).send({ error: 'unsupported_effort', reason: maxError });
       const seed = recoveryPrompt({
         question,
         answer,
@@ -1438,10 +1483,8 @@ export async function buildServer(
       try {
         const created = await createMobileSessionAndSend({
           text: seed,
-          model: runner.resolveModel(
-            resolveNewSessionModel(stored, body.model),
-          ),
-          effort: runner.resolveEffort(body.effort ?? stored.defaultEffort),
+          model,
+          effort,
           strictConfirm,
           permissionMode: stored.defaultPermissionMode ?? undefined,
         });
@@ -1473,6 +1516,12 @@ export async function buildServer(
       const body = request.body;
       if (!body || typeof body !== 'object' || Array.isArray(body)) {
         return reply.code(400).send({ error: 'bad_body' });
+      }
+      if (
+        'defaultEffort' in body && body.defaultEffort !== '' &&
+        !EFFORT_LEVELS.includes(body.defaultEffort as EffortLevel)
+      ) {
+        return reply.code(400).send({ error: 'invalid_effort' });
       }
       return { settings: settings.write(body) };
     },

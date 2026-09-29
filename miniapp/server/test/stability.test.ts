@@ -899,7 +899,7 @@ describe('write_todos replay', () => {
 describe('mini app settings', () => {
   it('normalises anything into a valid object', () => {
     expect(normaliseSettings(null)).toEqual(DEFAULT_SETTINGS);
-    expect(normaliseSettings({ defaultEffort: 'max' }).defaultEffort).toBe('');
+    expect(normaliseSettings({ defaultEffort: 'max' }).defaultEffort).toBe('max');
     expect(normaliseSettings({ defaultEffort: 'xhigh' }).defaultEffort).toBe(
       'xhigh',
     );

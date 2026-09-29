@@ -13,7 +13,7 @@ import { ErrorCard } from '../src/components/ErrorCard';
 import { QuestionCard } from '../src/components/QuestionCard';
 import { TodoSection, todoSummary } from '../src/components/TodoSection';
 import { StreamFooter } from '../src/components/StreamFooter';
-import { Composer } from '../src/components/Composer';
+import { Composer, PermissionButton } from '../src/components/Composer';
 import { foldIsLive } from '../src/components/Thread';
 import { ProviderMark, hasProviderMark } from '../src/components/Brand';
 import type {
@@ -321,6 +321,20 @@ const composerProps = {
 };
 
 describe('the composer stop control', () => {
+  it('keeps unreadable permission state visibly unknown', () => {
+    render(<PermissionButton mode={null} onOpen={() => {}} />);
+    expect(screen.getByText('Access')).toBeTruthy();
+    expect(document.querySelector('.lucide-shield')).toBeTruthy();
+    expect(document.querySelector('.lucide-shield-check')).toBeNull();
+  });
+
+  it('uses one placeholder for home and reply composers', () => {
+    const { rerender } = render(<Composer {...composerProps} variant="home" />);
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).placeholder).toBe('Ask Aside...');
+    rerender(<Composer {...composerProps} variant="reply" />);
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).placeholder).toBe('Ask Aside...');
+  });
+
   it('is absent when nothing is running', () => {
     render(<Composer {...composerProps} onStop={() => {}} />);
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();

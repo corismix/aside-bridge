@@ -96,13 +96,14 @@ export function PermissionGlyph({
   mode,
   size = 15,
 }: {
-  mode: string;
+  mode: string | null;
   size?: number;
 }) {
   const props = { size, strokeWidth: 1.75, 'aria-hidden': true } as const;
   if (mode === 'read-only') return <BookOpen {...props} />;
   if (mode === 'full-access') return <CircleCheck {...props} />;
-  return <ShieldCheck {...props} />;
+  if (mode === 'guard') return <ShieldCheck {...props} />;
+  return <Shield {...props} />;
 }
 
 const STEP_ICONS: Record<StepIcon, typeof Terminal> = {

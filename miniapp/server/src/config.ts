@@ -15,12 +15,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-/**
- * Every effort level Aside itself names, in its own order.
- *
- * `max` is here because Aside's UI and settings use it, but note
- * SENDABLE_EFFORT_LEVELS below: the CLI will not accept it.
- */
+/** Effort labels in Aside's order. */
 export const EFFORT_LABELS: Record<string, string> = {
   off: 'Off',
   minimal: 'Minimal',
@@ -32,19 +27,12 @@ export const EFFORT_LABELS: Record<string, string> = {
   ultrabrowse: 'Ultrabrowse',
 };
 
-/**
- * What `aside exec --effort` actually accepts. Verified against the CLI:
- *
- *   $ aside exec --effort max "…"
- *   error: option '--effort <effort>' argument 'max' is invalid.
- *          Allowed choices are off, minimal, low, medium, high, xhigh,
- *          ultrabrowse.
- *
- * So "Max" appears in Aside's own Reasoning popover but is unsendable
- * through this transport. It is deliberately absent from the picker rather
- * than being silently remapped onto xhigh, which would lie about what the
- * turn ran at.
- */
+/** CLI-accepted effort values, including values hidden for unsupported models. */
+// `max` acceptance was verified 2026-09-29 against CLI 1.26.916.1741 with
+// the two non-billed probes in docs/ASIDE-UPDATE-RESEARCH-2026-09-29.md §10.1:
+// a valid max plus invalid host passed option validation; an invalid effort
+// was rejected before host lookup. This proves CLI parsing only, not that the
+// daemon honours Max for every model.
 export const EFFORT_LEVELS = [
   'off',
   'minimal',
@@ -52,6 +40,7 @@ export const EFFORT_LEVELS = [
   'medium',
   'high',
   'xhigh',
+  'max',
   'ultrabrowse',
 ] as const;
 
@@ -67,6 +56,7 @@ export const EFFORT_MENU: EffortLevel[] = [
   'medium',
   'high',
   'xhigh',
+  'max',
   'ultrabrowse',
 ];
 

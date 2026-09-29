@@ -308,11 +308,10 @@ describe('write API', () => {
     const providers = body.catalog.map((p: any) => p.id);
     expect(providers).toContain('claude-code');
 
-    // "Max" is in Aside's own menu but the CLI rejects it, so it must not
-    // be offered here.
+    // The API publishes CLI-supported candidates; each selected model's
+    // verified capabilities filter the actual picker choices client-side.
     const effortIds = body.effortMenu.map((e: any) => e.id);
-    expect(effortIds).toEqual(['low', 'medium', 'high', 'xhigh', 'ultrabrowse']);
-    expect(effortIds).not.toContain('max');
+    expect(effortIds).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultrabrowse']);
 
     // With no reachable daemon the pills fall back to the config default.
     expect(body.defaults.modelId).toBe('claude-sonnet-5');

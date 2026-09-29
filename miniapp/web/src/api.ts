@@ -23,6 +23,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly reason: string,
+    readonly code?: string,
   ) {
     super(`${status}: ${reason}`);
     this.name = 'ApiError';
@@ -48,7 +49,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const body = text ? JSON.parse(text) : {};
   if (!res.ok) {
-    throw new ApiError(res.status, body.reason || body.error || res.statusText);
+    throw new ApiError(
+      res.status,
+      body.reason || body.error || res.statusText,
+      body.error,
+    );
   }
   return body as T;
 }

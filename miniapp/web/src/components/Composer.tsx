@@ -202,7 +202,7 @@ export function PermissionButton({
       aria-label="Permission"
       onClick={() => ref.current && onOpen(ref.current)}
     >
-      <PermissionGlyph mode={mode || 'guard'} size={15} />
+      <PermissionGlyph mode={mode} size={15} />
       <span className="pill-label">{label}</span>
       <ChevronDown size={13} strokeWidth={1.75} />
     </button>
@@ -307,9 +307,7 @@ export function Composer({
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={
-              variant === 'home' ? 'Chat with Aside…' : 'Reply to Aside…'
-            }
+            placeholder="Ask Aside..."
             rows={1}
             disabled={blocked}
           />

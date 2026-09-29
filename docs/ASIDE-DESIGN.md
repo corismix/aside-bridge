@@ -6,17 +6,40 @@ an older stylesheet or this document's memory of it.
 
 ## Reference source
 
-Verified 2026-09-23 against Aside Framework `1.0.922.1` and Aside Browsing
-Agent `1.26.923.310`:
+Verified 2026-09-29 against Aside Browser `1.0.928.1` and Aside Browsing
+Agent `1.26.928.1922`. The separately versioned CLI was
+`1.26.916.1741`:
 
 ```text
-/Applications/Aside.app/Contents/Frameworks/Aside Framework.framework/Versions/1.0.922.1/Libraries/AsideAgentManager
+/Applications/Aside.app/Contents/Frameworks/Aside Framework.framework/Versions/1.0.928.1/Libraries/AsideAgentManager
 ```
 
-The relevant files are `assets/globals-D6PBr-GP.css`, `sidepanel.html`,
+For future read-only inspection, the version-independent path is:
+
+```text
+/Applications/Aside.app/Contents/Frameworks/Aside Framework.framework/Versions/Current/Libraries/AsideAgentManager
+```
+
+The relevant files include `assets/globals-d32IVJ-N.css`, `sidepanel.html`,
 `main.html`, and the sidepanel's loaded picker and composer modules. Refresh
-the version and recheck those files after an Aside update. Do not copy the
-compiled bundle or its proprietary font assets into this repository.
+the version and recheck those files after an Aside update. Hashed asset
+filenames change between builds. Do not copy compiled bundles or proprietary
+fonts into this repository.
+
+Read-only re-verification on the reference install (run each command
+independently after setting the path):
+
+```bash
+ASIDE_AGENT_DIR="/Applications/Aside.app/Contents/Frameworks/Aside Framework.framework/Versions/Current/Libraries/AsideAgentManager"
+```
+
+```bash
+rg -l 'Ask Aside' "$ASIDE_AGENT_DIR" -g '*.js'
+```
+
+```bash
+head -5 "$ASIDE_AGENT_DIR/manifest.json"
+```
 
 ## Visual system
 

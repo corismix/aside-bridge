@@ -17,6 +17,7 @@ export interface ReasoningSheetProps {
   anchor: HTMLElement | null;
   options: Array<{ id: string; label: string }>;
   current: string;
+  unavailableCurrent?: boolean;
   onPick: (id: string) => void;
   onClose: () => void;
 }
@@ -110,11 +111,15 @@ export function ReasoningSheet({
   anchor,
   options,
   current,
+  unavailableCurrent = false,
   onPick,
   onClose,
 }: ReasoningSheetProps) {
   return (
     <AdaptivePickerSurface anchor={anchor} title="Effort" onClose={onClose} width={220}>
+      {unavailableCurrent ? (
+        <p className="picker-note">This effort is not verified for the selected model. Choose a supported effort before sending.</p>
+      ) : null}
       <PickerGroup>
         {options.map((option) => {
           const selected = option.id === current;

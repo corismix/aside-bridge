@@ -129,14 +129,14 @@ describe('per-session serialisation', () => {
     runner.send('sessA', {
       text: 'weird "quotes" and $(rm -rf /) and \'ticks\'',
       model: 'claude-sonnet-5',
-      effort: 'low',
+      effort: 'max',
     });
     expect(spawned[0].cmd).toBe('/fake/aside');
     expect(spawned[0].args).toEqual([
       '-m',
       'claude-sonnet-5',
       '--effort',
-      'low',
+      'max',
       'session',
       'resume',
       'sessA',
@@ -191,7 +191,7 @@ describe('new session creation', () => {
   it('returns the id of the session directory the CLI creates', async () => {
     const runner = makeRunner();
     const promise = runner.createSession(
-      { text: 'hello', model: 'claude-sonnet-5', effort: 'low' },
+      { text: 'hello', model: 'claude-sonnet-5', effort: 'max' },
       { timeoutMs: 3_000, pollMs: 20 },
     );
     setTimeout(() => {
@@ -205,7 +205,7 @@ describe('new session creation', () => {
       '-m',
       'claude-sonnet-5',
       '--effort',
-      'low',
+      'max',
       '--',
       'hello',
     ]);

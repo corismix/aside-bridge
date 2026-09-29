@@ -17,13 +17,15 @@ uses.
 
 **The server** (`miniapp/server/`, Fastify + `ws`) does four things:
 
-- **Drives turns.** A new message becomes `aside --model <provider/model>
-  --effort <level> exec "<text>"`, while a follow-up becomes `aside --model
-  <provider/model> --effort <level> session resume <id> -- "<text>"`, spawned
-  as a child process.
+- **Drives turns.** A new message becomes
+  `aside exec [-m <provider/model>] --effort <level> -- <text>`, while a
+  follow-up becomes
+  `aside [-m <provider/model>] --effort <level> session resume <id> -- <text>`,
+  spawned as a child process. The model option is omitted when unresolved;
+  `--` keeps dash-leading prompts positional.
   One turn per session at a time; adjacent queued messages that share a
   model and effort are batched into one turn. The server owns that child,
-  which is what makes Stop possible — and what makes the suspend watchdog
+  which is what makes the Mini App's Stop possible — and what makes the suspend watchdog
   possible.
 - **Reads transcripts.** The thread you see is built from
   `~/.aside/u/0/sessions/<id>/messages.jsonl`, tailed with a file watcher.
@@ -88,6 +90,13 @@ The Python chat bridge (`bridge.py`) is a separate service on the same
 machine, sharing the same `config.json` and the same Aside daemon. Telegram
 and the PWA are parallel clients; enabling the PWA does not remove or change
 the Telegram path.
+
+The Mini App's Stop action signals only the child process it owns. The
+Telegram chat bridge also offers `/stop` (or `/stop@<bot-name>`), which asks
+Aside to stop that bridge's active session and cancels plain messages already
+waiting in its queue. Those Telegram messages remain visible in chat. These
+are separate stop paths; the Telegram command does not replace the Mini App's
+owned-child stopping mechanism.
 
 ---
 
@@ -165,7 +174,9 @@ providers from `models.json`, the desktop model inventory from
 `visibleModelIds` before it reaches the client. `settings.json` supplies the
 default/category bindings and the hosted catalog's added/removed model
 visibility. The bridge only forwards model ids, display names, context
-windows, and image support -- never provider credentials or transport fields.
+windows, image support, and verified `availableThinkingLevels` -- never
+provider credentials or transport fields. Max is offered only for models
+that explicitly declare it; missing capability metadata stays unknown.
 If an authoritative inventory is unavailable, it falls back to the persisted
 account model ids and then the built-in defaults.
 
@@ -291,9 +302,10 @@ Read these before deciding something is broken.
 - **One bot, one Mini App.** The menu button is bot-wide, so a second
   machine using the same token takes the button from the first. Make a
   second bot with @BotFather if you want two.
-- **"Max" reasoning is not sendable.** Aside's own UI offers it; `aside exec
-  --effort max` rejects it. The picker hides it rather than silently running
-  something else under that name.
+- **Max reasoning is model-gated.** The CLI accepts `--effort max`, but the
+  Mini App offers it only when the selected model explicitly declares Max in
+  the local catalog. Unknown or unsupported models cannot dispatch it; the
+  effort is never silently remapped.
 - **No live browser view.** You can watch the agent's tool calls, not its
   tab.
 - **Settings here are the Mini App's own.** Changing a default for new

@@ -40,6 +40,8 @@ export interface DesktopModel {
   contextWindow: number;
   /** True when the model accepts images as well as text. */
   vision: boolean;
+  /** Aside's verified per-model effort capabilities; absent means unknown. */
+  availableThinkingLevels?: string[];
 }
 
 /** A provider as the desktop app defines it. */
@@ -130,6 +132,13 @@ function toModel(raw: unknown): DesktopModel | null {
     label: String(record.name || record.label || id).trim() || id,
     contextWindow: contextWindow > 0 ? contextWindow : 200_000,
     vision: input.includes('image'),
+    ...(Array.isArray(record.availableThinkingLevels)
+      ? {
+          availableThinkingLevels: record.availableThinkingLevels.filter(
+            (value): value is string => typeof value === 'string',
+          ),
+        }
+      : {}),
   };
 }
 

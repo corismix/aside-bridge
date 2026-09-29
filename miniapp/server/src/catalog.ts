@@ -17,6 +17,7 @@
  */
 import fs from 'node:fs';
 import type { DesktopModelRef, DesktopProvider } from './desktop.js';
+import { EFFORT_LEVELS, EFFORT_MENU, type EffortLevel } from './config.js';
 
 export interface CatalogModel {
   /** The id the CLI expects after the slash, e.g. `gpt-5.5`. */
@@ -29,6 +30,8 @@ export interface CatalogModel {
    * of the line at 200k, which is what the defaults below encode.
    */
   contextWindow: number;
+  /** Absent when the desktop catalog has not verified this capability. */
+  availableThinkingLevels?: string[];
 }
 
 /** What a model gets when neither the table nor config names a window. */
@@ -222,6 +225,11 @@ export function buildCatalog(
         contextWindow:
           m.contextWindow || knownModels.get(m.id)?.contextWindow ||
           DEFAULT_CONTEXT_WINDOW,
+        ...(m.availableThinkingLevels
+          ? { availableThinkingLevels: m.availableThinkingLevels }
+          : knownModels.get(m.id)?.availableThinkingLevels
+            ? { availableThinkingLevels: knownModels.get(m.id)!.availableThinkingLevels }
+            : {}),
       })),
       connected:
         provider.requiresCredentials === true
@@ -257,6 +265,9 @@ export function buildCatalog(
               ? Number(m.contextWindow)
               : (existingModels.get(m.id)?.contextWindow ??
                 DEFAULT_CONTEXT_WINDOW),
+          ...(existingModels.get(m.id)?.availableThinkingLevels
+            ? { availableThinkingLevels: existingModels.get(m.id)!.availableThinkingLevels }
+            : {}),
         }));
       if (override.replace) {
         target.models = added;
@@ -342,4 +353,34 @@ export function contextWindowFor(
     for (const m of p.models) if (m.id === modelId) return m.contextWindow;
   }
   return DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * CLI efforts available for one model. Unknown metadata preserves legacy
+ * choices, except Max, which requires an explicit per-model declaration.
+ */
+export function effortsForModel(
+  catalog: CatalogProvider[],
+  provider: string,
+  modelId: string,
+): EffortLevel[] {
+  const model = catalog
+    .find((candidate) => candidate.id === provider)
+    ?.models.find((candidate) => candidate.id === modelId);
+  const declared = model?.availableThinkingLevels;
+  if (!declared) return EFFORT_MENU.filter((level) => level !== 'max');
+  const supported = new Set(declared.filter((level) => EFFORT_LEVELS.includes(level as EffortLevel)));
+  return EFFORT_MENU.filter((level) => supported.has(level));
+}
+
+export function modelDeclaresEffort(
+  catalog: CatalogProvider[],
+  provider: string,
+  modelId: string,
+  effort: string,
+): boolean {
+  const model = catalog
+    .find((candidate) => candidate.id === provider)
+    ?.models.find((candidate) => candidate.id === modelId);
+  return model?.availableThinkingLevels?.includes(effort) === true;
 }

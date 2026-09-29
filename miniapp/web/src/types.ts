@@ -387,6 +387,8 @@ export interface CatalogModel {
   label: string;
   /** Context window in tokens -- the ring's denominator. */
   contextWindow: number;
+  /** Missing means the installed Aside catalog has not verified effort support. */
+  availableThinkingLevels?: string[];
 }
 
 export interface CatalogProvider {

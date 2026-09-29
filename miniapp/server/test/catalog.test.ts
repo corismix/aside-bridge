@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_CONTEXT_WINDOW,
   buildCatalog,
+  effortsForModel,
   modelLabel,
+  modelDeclaresEffort,
   readProviderIds,
 } from '../src/catalog.js';
 import { readDesktopProviders, readDesktopSettings } from '../src/desktop.js';
@@ -171,6 +173,28 @@ describe('buildCatalog', () => {
     ]);
     expect(catalog.find((candidate) => candidate.id === 'anthropic')).toBeUndefined();
     expect(JSON.stringify(desktop)).not.toContain('secret.example.invalid');
+  });
+
+  it('preserves declared thinking levels and gates Max on explicit support', () => {
+    const file = writeModels(JSON.stringify({ providers: {} }));
+    writeModelCache(file, JSON.stringify({
+      'openai-codex': {
+        models: [
+          { id: 'max-model', name: 'Max Model', availableThinkingLevels: ['low', 'max', 'unknown'] },
+          { id: 'unknown-model', name: 'Unknown Model' },
+        ],
+      },
+    }));
+    const catalog = buildCatalog(
+      ['openai-codex'], {}, readDesktopProviders(file), [],
+    );
+    const provider = catalog.find((item) => item.id === 'openai-codex')!;
+
+    expect(provider.models[0].availableThinkingLevels).toEqual(['low', 'max', 'unknown']);
+    expect(effortsForModel(catalog, 'openai-codex', 'max-model')).toEqual(['low', 'max']);
+    expect(modelDeclaresEffort(catalog, 'openai-codex', 'max-model', 'max')).toBe(true);
+    expect(effortsForModel(catalog, 'openai-codex', 'unknown-model')).not.toContain('max');
+    expect(modelDeclaresEffort(catalog, 'openai-codex', 'unknown-model', 'max')).toBe(false);
   });
 
   it('does not resurrect models when Aside explicitly hides the whole provider', () => {
