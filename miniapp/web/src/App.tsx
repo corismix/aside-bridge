@@ -401,12 +401,6 @@ export default function App() {
     haptic('light');
   };
 
-  /** The CLI takes `provider/modelId`; a bare id means "daemon default". */
-  const wireModel = () =>
-    pills.provider && pills.modelId
-      ? `${pills.provider}/${pills.modelId}`
-      : undefined;
-
   const wireNewSessionModel = () =>
     !provider && !modelId && !appSettings
       ? undefined
